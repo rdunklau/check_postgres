@@ -3752,8 +3752,9 @@ FROM (SELECT nspname, relname, $criteria AS v
       AND n.nspname <> 'information_schema'
       ORDER BY 3) AS foo
 };
+    ## Get the oldest operation first when using perflimit
     if ($opt{perflimit}) {
-        $SQL .= ' ORDER BY 3 DESC';
+        $SQL .= ' ORDER BY 4 DESC';
     }
 
     if ($USERWHERECLAUSE) {
