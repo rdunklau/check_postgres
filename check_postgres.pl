@@ -177,6 +177,7 @@ our %msg = (
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{No prepared transactions found},
+    'psa-noqstart'       => q{Cannot find a suitable query_start ?},
     'psa-nomatches'      => q{No queries were found},
     'psa-nosuper'        => q{No matches - please run as a superuser},
     'psa-skipped'        => q{No matching rows were found (skipped rows: $1)},
@@ -4316,157 +4317,6 @@ sub check_new_version_tnm {
 
 } ## end of check_new_version_tnm
 
-
-sub find_pg_stat_activity {
-
-    ## Common function to run various actions against the pg_stat_activity view
-    ## Actions: txn_idle, txn_time, query_time
-    ## Supports: Nagios, MRTG
-    ## It makes no sense to run this more than once on the same cluster
-    ## Warning and critical are time limits - defaults to seconds
-    ## Valid units: s[econd], m[inute], h[our], d[ay]
-    ## All above may be written as plural as well (e.g. "2 hours")
-    ## Can also ignore databases with exclude and limit with include
-    ## Limit to a specific user with the includeuser option
-    ## Exclude users with the excludeuser option
-
-    my $arg = shift || {};
-
-    my ($warning, $critical) = validate_range
-        ({
-          type             => 'time',
-          default_warning  => $arg->{default_warning},
-          default_critical => $arg->{default_critical},
-          });
-
-    ## Grab information from the pg_stat_activity table
-    ## Since we clobber old info on a qtime "tie", use an ORDER BY
-    $SQL = qq{
-SELECT
- xact_start,
- SUBSTR(current_query,0,100) AS current_query,
- client_addr,
- client_port,
- procpid,
- COALESCE(ROUND(EXTRACT(epoch FROM now()-$arg->{offsetcol})),0) AS qtime,
- datname,
- usename
-FROM pg_stat_activity
-WHERE $arg->{whereclause} $USERWHERECLAUSE
-ORDER BY xact_start, procpid DESC
-};
-
-    my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
-
-    ## Default values for information gathered
-    my ($maxact, $maxtime, $client_addr, $client_port, $procpid, $username, $maxdb, $maxq) =
-        ('?',0,'?','?','?','?','?','?');
-
-    for $db (@{$info->{db}}) {
-
-        ## Parse the psql output and gather stats from the winning row
-        ## Read in and parse the psql output
-        my $skipped = 0;
-      ROW: for my $r (@{$db->{slurp}}) {
-
-            ## Apply --exclude and --include arguments to the database name
-            if (skip_item($r->{datname})) {
-                $skipped++;
-                next ROW;
-            }
-
-            ## Detect cases where pg_stat_activity is not fully populated
-            if ($r->{xact_start} !~ /\d/o) {
-                ## Perhaps this is a non-superuser?
-                if ($r->{current_query} =~ /insufficient/) {
-                    add_unknown msg('psa-nosuper');
-                }
-                ## Perhaps stats_command_string / track_activities is off?
-                elsif ($r->{current_query} =~ /disabled/) {
-                    add_unknown msg('psa-disabled');
-                }
-                ## Something else is going on
-                else {
-                    add_unknown msg('psa-noxact');
-                }
-                return;
-            }
-
-            ## Assign stats if we have a new winner
-            if ($r->{qtime} >= $maxtime) {
-                $maxact      = $r->{xact_start};
-                $client_addr = $r->{client_addr};
-                $client_port = $r->{client_port};
-                $procpid     = $r->{procpid};
-                $maxtime     = $r->{qtime};
-                $maxdb       = $r->{datname};
-                $username    = $r->{usename};
-                $maxq        = $r->{current_query};
-            }
-        }
-
-        ## We don't really care why things matches as far as the final output
-        ## But it's nice to report what we can
-        if ($maxdb eq '?') {
-            $MRTG and do_mrtg({one => 0, msg => 'No rows'});
-            $db->{perf} = "0;$warning;$critical";
-
-            if ($skipped) {
-                add_ok msg('psa-skipped', $skipped);
-            }
-            else {
-                add_ok msg('psa-nomatches');
-            }
-            return;
-        }
-
-        ## Details on who the offender was
-        my $whodunit = sprintf q{%s:%s %s:%s%s%s %s:%s},
-            msg('database'),
-            $maxdb,
-            msg('PID'),
-            $procpid,
-            $client_port < 1 ? '' : (sprintf ' %s:%s', msg('port'), $client_port),
-            $client_addr eq '' ? '' : (sprintf ' %s:%s', msg('address'), $client_addr),
-            msg('username'),
-            $username;
-
-        my $details = '';
-        if ($VERBOSE >= 1 and $maxtime > 0) { ## >0 so we don't report ourselves
-            $maxq =~ s/\n/\\n/g;
-            $details = ' ' . msg('Query', $maxq);
-        }
-
-        $MRTG and do_mrtg({one => $maxtime, msg => "$whodunit$details"});
-
-        $db->{perf} .= sprintf q{'%s'=%s;%s;%s},
-            $whodunit,
-            $maxtime,
-            $warning,
-            $critical;
-
-        my $m = $action eq 'query_time' ? msg('qtime-msg', $maxtime)
-            : $action eq 'txn_time'   ? msg('txntime-msg', $maxtime)
-              : $action eq 'txn_idle'   ? msg('txnidle-msg', $maxtime)
-              : die "Unkown action: $action\n";
-        my $msg = sprintf '%s (%s)%s', $m, $whodunit, $details;
-
-        if (length $critical and $maxtime >= $critical) {
-            add_critical $msg;
-        }
-        elsif (length $warning and $maxtime >= $warning) {
-            add_warning $msg;
-        }
-        else {
-            add_ok $msg;
-        }
-    }
-
-    return;
-
-} ## end of find_pg_stat_activity
-
-
 sub check_pgbouncer_checksum {
 
     ## Verify the checksum of all pgbouncer settings
@@ -4707,15 +4557,140 @@ sub check_query_runtime {
 
 sub check_query_time {
 
-    ## Check the length of running queries
+    ## Check the oldest running query
+    ## It makes no sense to run this more than once on the same cluster
+    ## Warning and critical are time limits - defaults to seconds
+    ## Valid units: s[econd], m[inute], h[our], d[ay]
+    ## All above may be written as plural as well (e.g. "2 hours")
+    ## Can also ignore databases with exclude and limit with include
+    ## Limit to a specific user with the includeuser option
+    ## Exclude users with the excludeuser option
 
-    return find_pg_stat_activity(
-        {
-            default_warning  => '2 minutes',
-            default_critical => '5 minutes',
-            whereclause      => q{current_query <> '<IDLE>'},
-            offsetcol        => q{query_start},
-        });
+    my ($warning, $critical) = validate_range
+        ({
+          type             => 'time',
+          default_warning  => '2 minutes',
+          default_critical => '5 minutes',
+          });
+
+    ## Grab information from the pg_stat_activity table
+    ## Since we clobber old info on a qtime "tie", use an ORDER BY
+    $SQL = qq{
+SELECT
+ query_start,
+ SUBSTR(current_query,0,100) AS current_query,
+ client_addr,
+ client_port,
+ procpid,
+ COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0) AS qtime,
+ datname,
+ usename
+FROM pg_stat_activity
+WHERE current_query <> '<IDLE>' $USERWHERECLAUSE
+ORDER BY query_start, procpid DESC
+};
+
+    my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
+
+    ## Default values for information gathered
+    my ($maxtime, $client_addr, $client_port, $procpid, $username, $maxdb, $maxq) =
+        (0,'?','?','?','?','?','?');
+
+    for $db (@{$info->{db}}) {
+
+        ## Parse the psql output and gather stats from the winning row
+        ## Read in and parse the psql output
+        my $skipped = 0;
+      ROW: for my $r (@{$db->{slurp}}) {
+
+            ## Apply --exclude and --include arguments to the database name
+            if (skip_item($r->{datname})) {
+                $skipped++;
+                next ROW;
+            }
+
+            ## Detect cases where pg_stat_activity is not fully populated
+            if ($r->{query_start} !~ /\d/o) {
+                ## Perhaps this is a non-superuser?
+                if ($r->{current_query} =~ /insufficient/) {
+                    add_unknown msg('psa-nosuper');
+                }
+                ## Perhaps stats_command_string / track_activities is off?
+                elsif ($r->{current_query} =~ /disabled/) {
+                    add_unknown msg('psa-disabled');
+                }
+                ## Something else is going on
+                else {
+                    add_unknown msg('psa-noqstart');
+                }
+                return;
+            }
+
+            ## Assign stats if we have a new winner
+            if ($r->{qtime} >= $maxtime) {
+                $client_addr = $r->{client_addr};
+                $client_port = $r->{client_port};
+                $procpid     = $r->{procpid};
+                $maxtime     = $r->{qtime};
+                $maxdb       = $r->{datname};
+                $username    = $r->{usename};
+                $maxq        = $r->{current_query};
+            }
+        }
+
+        ## We don't really care why things matches as far as the final output
+        ## But it's nice to report what we can
+        if ($maxdb eq '?') {
+            $MRTG and do_mrtg({one => 0, msg => 'No rows'});
+            $db->{perf} = "0;$warning;$critical";
+
+            if ($skipped) {
+                add_ok msg('psa-skipped', $skipped);
+            }
+            else {
+                add_ok msg('psa-nomatches');
+            }
+            return;
+        }
+
+        ## Details on who the offender was
+        my $whodunit = sprintf q{%s:%s %s:%s%s%s %s:%s},
+            msg('database'),
+            $maxdb,
+            msg('PID'),
+            $procpid,
+            $client_port < 1 ? '' : (sprintf ' %s:%s', msg('port'), $client_port),
+            $client_addr eq '' ? '' : (sprintf ' %s:%s', msg('address'), $client_addr),
+            msg('username'),
+            $username;
+
+        my $details = '';
+        if ($VERBOSE >= 1 and $maxtime > 0) { ## >0 so we don't report ourselves
+            $maxq =~ s/\n/\\n/g;
+            $details = ' ' . msg('Query', $maxq);
+        }
+
+        $MRTG and do_mrtg({one => $maxtime, msg => "$whodunit$details"});
+
+        $db->{perf} .= sprintf q{'%s'=%s;%s;%s},
+            $whodunit,
+            $maxtime,
+            $warning,
+            $critical;
+
+        my $msg = sprintf '%s (%s)%s', msg('qtime-msg', $maxtime), $whodunit, $details;
+
+        if (length $critical and $maxtime >= $critical) {
+            add_critical $msg;
+        }
+        elsif (length $warning and $maxtime >= $warning) {
+            add_warning $msg;
+        }
+        else {
+            add_ok $msg;
+        }
+    }
+
 
 } ## end of check_query_time
 
