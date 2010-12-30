@@ -7186,22 +7186,25 @@ sub check_hot_standby_delay {
     ## Critical and warning are
     ## Example: --critical=
 
-    my ($warning, $critical) = validate_range({type => 'integer'});
+    my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
 
     # check if master and slave comply with the check using pg_is_in_recovery()
     my ($master, $slave);
     $SQL = q{SELECT pg_is_in_recovery() AS recovery;};
 
     # Check if master is online (eg really a master)
-
     for my $x (1..2) {
-        my $res = run_command($SQL, { dbnumber => $x, regex => qr(t|f) });
+        my $info = run_command($SQL, { dbnumber => $x, regex => qr(t|f) });
 
-        my $status = $res->{db}[0]{slurp}[0]{recovery};
-        if ($status eq 't') {
-            $slave = $x;
-        } elsif ($status eq 'f') {
-            $master = $x;
+        for $db (@{$info->{db}}) {
+            my $status = $db->{slurp}[0];
+            if ($status->{recovery} eq 't') {
+                $slave = $x;
+                last;
+            } elsif ($status->{recovery} eq 'f') {
+                $master = $x;
+                last;
+            }
         }
     }
     if (! defined $slave and ! defined $master) {
@@ -7210,41 +7213,65 @@ sub check_hot_standby_delay {
     }
 
     ## Get xlog positions
+    my ($moffset, $s_rec_offset, $s_rep_offset);
     ## On master
     $SQL = q{SELECT pg_current_xlog_location() AS location;};
     my $info = run_command($SQL, { dbnumber => $master });
+    my $saved_db;
+    for $db (@{$info->{db}}) {
+        my $location = $db->{slurp}[0]{location};
+        next if ! defined $location;
 
-    my $location = $info->{db}[0]{slurp}[0]{location};
-    if (! defined $location) {
+        my ($a, $b) = split(/\//, $location);
+        $moffset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+        $saved_db = $db if ! defined $saved_db;
+    }
+
+    if (! defined $moffset) {
         add_unknown "Could not get current xlog location on master";
         return;
     }
-    my ($a, $b) = split(/\//, $location);
-
-    my $offset1 = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
 
     ## On slave
-    $SQL = q{SELECT pg_last_xlog_replay_location() AS location;};
-    $info = run_command($SQL, { dbnumber => $slave });
+    $SQL = q{SELECT pg_last_xlog_receive_location() AS receive, pg_last_xlog_replay_location() AS replay};
 
-    $location = $info->{db}[0]{slurp}[0]{location};
-    if (! defined $location) {
-        add_unknown "Could not get current xlog replay location on slave";
+    $info = run_command($SQL, { dbnumber => $slave, regex => qr/\// });
+
+    for $db (@{$info->{db}}) {
+        my $receive = $db->{slurp}[0]{receive};
+        my $replay = $db->{slurp}[0]{replay};
+
+        if (defined $receive) {
+            my ($a, $b) = split(/\//, $receive);
+            $s_rec_offset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+        }
+
+        if (defined $replay) {
+            my ($a, $b) = split(/\//, $replay);
+            $s_rep_offset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+        }
+
+        $saved_db = $db if ! defined $saved_db;
+    }
+
+    if (! defined $s_rec_offset and ! defined $s_rep_offset) {
+        add_unknown "Could not get current xlog locations on slave";
         return;
     }
-    ($a, $b) = split(/\//, $location);
 
-    my $offset2 = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
-    my $delta = $offset1 - $offset2;
-    
+    ## Compute deltas
+    $db = $saved_db;
+    my $rec_delta = $moffset - $s_rec_offset;
+    my $rep_delta = $moffset - $s_rep_offset;
 
-    my $db = $info->{db}[0];
-    $db->{perf} .= qq{lag=$delta;$warning;$critical};
+    $db->{perf} = qq{replay_delay=$rep_delta;$warning;$critical};
+    $db->{perf} .= qq{ receive_delay=$rec_delta;$warning;$critical};
 
-    my $msg = qq{lag=$delta};
-    if (length $critical and $delta > $critical) {
+    ## Do the check on replay delay in case SR has disconnected because it way too far behind
+    my $msg = qq{$rep_delta};
+    if (length $critical and $rep_delta > $critical) {
         add_critical $msg;
-    } elsif (length $warning and $delta > $warning) {
+    } elsif (length $warning and $rep_delta > $warning) {
         add_warning $msg;
     } else {
         add_ok $msg;
