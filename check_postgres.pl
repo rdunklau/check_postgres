@@ -874,6 +874,7 @@ our $action_info = {
  version             => [1, 'Check for proper Postgres version.'],
  wal_files           => [1, 'Check the number of WAL files in the pg_xlog directory'],
  archive_ready       => [1, 'Check the number of WAL files ready in the pg_xlog/archive_status'],
+ hot_standby_delay   => [0, 'Check the replication delay in hot standby setup'],
 };
 
 ## XXX Need to i18n the above
@@ -1449,6 +1450,9 @@ check_wal_files() if $action eq 'wal_files';
 
 ## Check the number of WAL files ready to archive. warning and critical are numbers
 check_archive_ready() if $action eq 'archive_ready';
+
+## Check the replication delay in hot standby setup
+check_hot_standby_delay() if $action eq 'hot_standby_delay';
 
 ## Check the maximum transaction age of all connections
 check_txn_time() if $action eq 'txn_time';
@@ -7174,6 +7178,80 @@ sub check_archive_ready {
 
 } ## end of check_archive_ready
 
+sub check_hot_standby_delay {
+
+    ## Check on the delay in replication between master and slave
+    ## Supports: Nagios
+    ## Must run as a superuser
+    ## Critical and warning are
+    ## Example: --critical=
+
+    my ($warning, $critical) = validate_range({type => 'integer'});
+
+    # check if master and slave comply with the check using pg_is_in_recovery()
+    my ($master, $slave);
+    $SQL = q{SELECT pg_is_in_recovery() AS recovery;};
+
+    # Check if master is online (eg really a master)
+
+    for my $x (1..2) {
+        my $res = run_command($SQL, { dbnumber => $x, regex => qr(t|f) });
+
+        my $status = $res->{db}[0]{slurp}[0]{recovery};
+        if ($status eq 't') {
+            $slave = $x;
+        } elsif ($status eq 'f') {
+            $master = $x;
+        }
+    }
+    if (! defined $slave and ! defined $master) {
+        add_unknown "Not a master-slave couple";
+        return;
+    }
+
+    ## Get xlog positions
+    ## On master
+    $SQL = q{SELECT pg_current_xlog_location() AS location;};
+    my $info = run_command($SQL, { dbnumber => $master });
+
+    my $location = $info->{db}[0]{slurp}[0]{location};
+    if (! defined $location) {
+        add_unknown "Could not get current xlog location on master";
+        return;
+    }
+    my ($a, $b) = split(/\//, $location);
+
+    my $offset1 = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+
+    ## On slave
+    $SQL = q{SELECT pg_last_xlog_replay_location() AS location;};
+    $info = run_command($SQL, { dbnumber => $slave });
+
+    $location = $info->{db}[0]{slurp}[0]{location};
+    if (! defined $location) {
+        add_unknown "Could not get current xlog replay location on slave";
+        return;
+    }
+    ($a, $b) = split(/\//, $location);
+
+    my $offset2 = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+    my $delta = $offset1 - $offset2;
+    
+
+    my $db = $info->{db}[0];
+    $db->{perf} .= qq{lag=$delta;$warning;$critical};
+
+    my $msg = qq{lag=$delta};
+    if (length $critical and $delta > $critical) {
+        add_critical $msg;
+    } elsif (length $warning and $delta > $warning) {
+        add_warning $msg;
+    } else {
+        add_ok $msg;
+    }
+
+    return;
+} ## End of check_hot_standby_delay
 
 =pod
 
