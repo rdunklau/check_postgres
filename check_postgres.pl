@@ -133,6 +133,8 @@ our %msg = (
     'fsm-page-msg'       => q{fsm page slots used: $1 of $2 ($3%)},
     'fsm-rel-highver'    => q{Cannot check on fsm_relations on servers version 8.4 or greater},
     'fsm-rel-msg'        => q{fsm relations used: $1 of $2 ($3%)},
+    'hs-not-master-slave' => q{Not a master/slave couple},
+    'hs-no-location'     => q{Could not get current xlog location on $1},
     'invalid-option'     => q{Invalid option},
     'invalid-query'      => q{Invalid query returned: $1},
     'listener-count'     => q{ listening=$1}, ## needs leading space
@@ -1266,6 +1268,7 @@ our %testaction = (
                   archive_ready     => 'VERSION: 8.1',
                   fsm_pages         => 'VERSION: 8.2 MAX: 8.3',
                   fsm_relations     => 'VERSION: 8.2 MAX: 8.3',
+                  hot_standby_delay => 'VERSION: 9.0',
 );
 if ($opt{test}) {
     print msgn('testmode-start');
@@ -7182,9 +7185,8 @@ sub check_hot_standby_delay {
 
     ## Check on the delay in replication between master and slave
     ## Supports: Nagios
-    ## Must run as a superuser
-    ## Critical and warning are
-    ## Example: --critical=
+    ## Critical and warning are the delay between master and slave xlog locations
+    ## Example: --critical=1024
 
     my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
 
@@ -7208,7 +7210,7 @@ sub check_hot_standby_delay {
         }
     }
     if (! defined $slave and ! defined $master) {
-        add_unknown "Not a master-slave couple";
+        add_unknown msg('hs-not-master-slave');
         return;
     }
 
@@ -7228,7 +7230,7 @@ sub check_hot_standby_delay {
     }
 
     if (! defined $moffset) {
-        add_unknown "Could not get current xlog location on master";
+        add_unknown msg('hs-no-location', 'master');
         return;
     }
 
@@ -7255,7 +7257,7 @@ sub check_hot_standby_delay {
     }
 
     if (! defined $s_rec_offset and ! defined $s_rep_offset) {
-        add_unknown "Could not get current xlog locations on slave";
+        add_unknown msg('hs-no-location', 'slave');
         return;
     }
 
