@@ -7225,7 +7225,7 @@ sub check_hot_standby_delay {
         next if ! defined $location;
 
         my ($a, $b) = split(/\//, $location);
-        $moffset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+        $moffset = (hex("ffffffff") * hex($a)) + hex($b);
         $saved_db = $db if ! defined $saved_db;
     }
 
@@ -7245,12 +7245,12 @@ sub check_hot_standby_delay {
 
         if (defined $receive) {
             my ($a, $b) = split(/\//, $receive);
-            $s_rec_offset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+            $s_rec_offset = (hex("ffffffff") * hex($a)) + hex($b);
         }
 
         if (defined $replay) {
             my ($a, $b) = split(/\//, $replay);
-            $s_rep_offset = hex($a) * 16 * 1024 * 1024 * 255 + hex($b);
+            s_rep_offset = (hex("ffffffff") * hex($a)) + hex($b);
         }
 
         $saved_db = $db if ! defined $saved_db;
@@ -8664,6 +8664,19 @@ Example 1: Check that the number of ready WAL files is 10 or less on host "pluto
   check_postgres_archive_ready --host=pluto --critical=10
 
 For MRTG output, reports the number of ready WAL files on line 1.
+
+=head2 B<hot_standby_delay>
+
+(C<symlink: check_hot_standby_delay>) Checks the streaming replication lag by computing the delta 
+between the xlog position of a master server and the one of a slave connected to it. The slave_
+server must be in hot_standby (eg. read only) mode, therefore the minimum version to use this_
+action is Postgres 9.0. The I<--warning> and I<--critical> options are the delta between xlog 
+location. These values should match the volume of transactions needed to have the streaming 
+replication disconnect from the master because of too much lag.
+
+You must provide information on how to reach the second database by a connection 
+parameter ending in the number 2, such as "--dbport2=5543". If if it not given, 
+the action fails.
 
 =head2 B<rebuild_symlinks>
 
