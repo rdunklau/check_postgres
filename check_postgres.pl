@@ -825,6 +825,7 @@ if ($opt{version}) {
 ## Quick hash to put normal action information in one place:
 our $action_info = {
  # Name                 # clusterwide? # helpstring
+ archive_ready       => [1, 'Check the number of WAL files ready in the pg_xlog/archive_status'],
  autovac_freeze      => [1, 'Checks how close databases are to autovacuum_freeze_max_age.'],
  backends            => [1, 'Number of connections, compared to max_connections.'],
  bloat               => [0, 'Check for table and index bloat.'],
@@ -874,7 +875,6 @@ our $action_info = {
  txn_wraparound      => [1, 'See how close databases are getting to transaction ID wraparound.'],
  version             => [1, 'Check for proper Postgres version.'],
  wal_files           => [1, 'Check the number of WAL files in the pg_xlog directory'],
- archive_ready       => [1, 'Check the number of WAL files ready in the pg_xlog/archive_status'],
 };
 
 ## XXX Need to i18n the above
@@ -2845,20 +2845,20 @@ FROM (
 
         for my $r (@{$db->{slurp}}) {
 
-            my ($dbname,$schema,$table,$tups,$pages,$otta,$bloat,$wp,$wb) = @$r{
-                qw/ db schemaname tablename tups pages otta tbloat wastedpages wastedbytes/};
-            my $ws = pretty_size($wb);
-            my ($index,$irows,$ipages,$iotta,$ibloat,$iwp,$iwb) = @$r{
-                    qw/ iname irows ipages iotta ibloat wastedipgaes wastedibytes/};
-            my $iws = pretty_size($iwb);
+            for my $v (values %$r) {
+                $v =~ s/(\d+) bytes/pretty_size($1,1)/ge;
+            }
+
+            my ($dbname,$schema,$table,$tups,$pages,$otta,$bloat,$wp,$wb,$ws) = @$r{
+                qw/ db schemaname tablename tups pages otta tbloat wastedpages wastedbytes wastedsize/};
+
             next if skip_item($table, $schema);
+
+            my ($index,$irows,$ipages,$iotta,$ibloat,$iwp,$iwb,$iws) = @$r{
+                    qw/ iname irows ipages iotta ibloat wastedipgaes wastedibytes wastedisize/};
 
             ## Made it past the exclusions
             $max = -2 if $max == -1;
-
-            for my $v (values %$r) {
-                $v =~ s/\| (\d+) bytes/'| ' . pretty_size($1,1)/ge;
-            }
 
             ## Do the table first if we haven't seen it
             if (! $seenit{"$dbname.$schema.$table"}++) {
@@ -6803,7 +6803,7 @@ sub check_txn_idle {
         }
         $db->{perf} .= msg('maxtime', $max);
         if ($max < 0) {
-            add_unknown msg('txnidle-none');
+            add_ok msg('txnidle-none');
             next;
         }
 
@@ -7464,6 +7464,26 @@ because criticals are always checked first, setting the warning equal to the
 critical is an effective way to turn warnings off and always give a critical.
 
 The current supported actions are:
+
+=head2 B<archive_ready>
+
+(C<symlink: check_postgres_archive_ready>) Checks how many WAL files with extension F<.ready> 
+exist in the F<pg_xlog/archive_status> directory, which is found 
+off of your B<data_directory>. This action must be run as a superuser, in order to access the 
+contents of the F<pg_xlog/archive_status> directory. The minimum version to use this action is 
+Postgres 8.1. The I<--warning> and I<--critical> options are simply the number of 
+F<.ready> files in the F<pg_xlog/archive_status> directory. 
+Usually, these values should be low, turning on the archive mechanism, we usually want it to 
+archive WAL files as fast as possible.
+
+If the archive command fail, number of WAL in your F<pg_xlog> directory will grow until
+exhausting all the disk space and force PostgreSQL to stop immediately.
+
+Example 1: Check that the number of ready WAL files is 10 or less on host "pluto"
+
+  check_postgres_archive_ready --host=pluto --critical=10
+
+For MRTG output, reports the number of ready WAL files on line 1.
 
 =head2 B<autovac_freeze>
 
@@ -8513,26 +8533,6 @@ Example 1: Check that the number of WAL files is 20 or less on host "pluto"
 
 For MRTG output, reports the number of WAL files on line 1.
 
-=head2 B<archive_ready>
-
-(C<symlink: check_postgres_archive_ready>) Checks how many WAL files with extension F<.ready> 
-exist in the F<pg_xlog/archive_status> directory, which is found 
-off of your B<data_directory>. This action must be run as a superuser, in order to access the 
-contents of the F<pg_xlog/archive_status> directory. The minimum version to use this action is 
-Postgres 8.1. The I<--warning> and I<--critical> options are simply the number of 
-F<.ready> files in the F<pg_xlog/archive_status> directory. 
-Usually, these values should be low, turning on the archive mechanism, we usually want it to 
-archive WAL files as fast as possible.
-
-If the archive command fail, number of WAL in your F<pg_xlog> directory will grow until
-exhausting all the disk space and force PostgreSQL to stop immediately.
-
-Example 1: Check that the number of ready WAL files is 10 or less on host "pluto"
-
-  check_postgres_archive_ready --host=pluto --critical=10
-
-For MRTG output, reports the number of ready WAL files on line 1.
-
 =head2 B<rebuild_symlinks>
 
 =head2 B<rebuild_symlinks_force>
@@ -8736,7 +8736,7 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
 =over 4
 
-=item B<Version 2.15.2>
+=item B<Version 2.15.2> December 28, 2010
 
   Better formatting of sizes in the bloat action output.
 
