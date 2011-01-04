@@ -30,7 +30,7 @@ $Data::Dumper::Varname = 'POSTGRES';
 $Data::Dumper::Indent = 2;
 $Data::Dumper::Useqq = 1;
 
-our $VERSION = '2.15.2';
+our $VERSION = '2.15.4';
 
 use vars qw/ %opt $PSQL $res $COM $SQL $db /;
 
@@ -43,7 +43,7 @@ $opt{defaultport} = 5432;
 ## What type of output to use by default
 our $DEFAULT_OUTPUT = 'nagios';
 
-## If psql is not in your path, it is recommended that hardcode it here,
+## If psql is not in your path, it is recommended to hardcode it here,
 ## as an alternative to the --PSQL option
 $PSQL = '';
 
@@ -97,6 +97,7 @@ our %msg = (
     'bloat-index'        => q{(db $1) index $2 rows:$3 pages:$4 shouldbe:$5 ($6X) wasted bytes:$7 ($8)},
     'bloat-nomin'        => q{no relations meet the minimum bloat criteria},
     'bloat-table'        => q{(db $1) table $2.$3 rows:$4 pages:$5 shouldbe:$6 ($7X) wasted size:$8 ($9)},
+    'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
     'checkpoint-baddir'  => q{Invalid data_directory: "$1"},
     'checkpoint-baddir2' => q{pg_controldata could not read the given data directory: "$1"},
     'checkpoint-badver'  => q{Failed to run pg_controldata - probably the wrong version},
@@ -129,9 +130,9 @@ our %msg = (
     'diskspace-nodf'     => q{Could not find required executable /bin/df},
     'diskspace-nodir'    => q{Could not find data directory "$1"},
     'file-noclose'       => q{Could not close $1: $2},
-    'fsm-page-highver'   => q{Cannot check on fsm_pages on servers version 8.4 or greater},
+    'fsm-page-highver'   => q{Cannot check fsm_pages on servers version 8.4 or greater},
     'fsm-page-msg'       => q{fsm page slots used: $1 of $2 ($3%)},
-    'fsm-rel-highver'    => q{Cannot check on fsm_relations on servers version 8.4 or greater},
+    'fsm-rel-highver'    => q{Cannot check fsm_relations on servers version 8.4 or greater},
     'fsm-rel-msg'        => q{fsm relations used: $1 of $2 ($3%)},
     'hs-not-master-slave' => q{Not a master/slave couple},
     'hs-no-location'     => q{Could not get current xlog location on $1},
@@ -167,6 +168,7 @@ our %msg = (
     'no-match-set'       => q{No matching settings found due to exclusion/inclusion options},
     'no-match-table'     => q{No matching tables found due to exclusion/inclusion options},
     'no-match-user'      => q{No matching entries found due to user exclusion/inclusion options},
+    'no-parse-psql'      => q{Could not parse psql output!},
     'no-time-hires'      => q{Cannot find Time::HiRes, needed if 'showtime' is true},
     'opt-output-invalid' => q{Invalid output: must be 'nagios' or 'mrtg' or 'simple' or 'cacti'},
     'opt-psql-badpath'   => q{Invalid psql argument: must be full path to a file named psql},
@@ -179,7 +181,8 @@ our %msg = (
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{No prepared transactions found},
-    'psa-noqstart'       => q{Cannot find a suitable query_start ?},
+    'psa-disabled'       => q{No queries - is stats_command_string or track_activities off?},
+    'psa-noexact'        => q{Unknown error},
     'psa-nomatches'      => q{No queries were found},
     'psa-nosuper'        => q{No matches - please run as a superuser},
     'psa-skipped'        => q{No matching rows were found (skipped rows: $1)},
@@ -197,7 +200,7 @@ our %msg = (
     'range-cactionly'    => q{This action is for cacti use only and takes no warning or critical arguments},
     'range-int'          => q{Invalid argument for '$1' option: must be an integer},
     'range-int-pos'      => q{Invalid argument for '$1' option: must be a positive integer},
-    'range-neg-percent'  => q{Cannot specify a negative percent!},
+    'range-neg-percent'  => q{Cannot specify a negative percentage!},
     'range-none'         => q{No warning or critical options are needed},
     'range-noopt-both'   => q{Must provide both 'warning' and 'critical' options},
     'range-noopt-one'    => q{Must provide a 'warning' or 'critical' option},
@@ -308,6 +311,7 @@ our %msg = (
     'bloat-index'        => q{(db $1) index $2 lignes:$3 pages:$4 devrait être:$5 ($6X) octets perdus:$7 ($8)},
     'bloat-nomin'        => q{aucune relation n'atteint le critère minimum de fragmentation},
     'bloat-table'        => q{(db $1) table $2.$3 lignes:$4 pages:$5 devrait être:$6 ($7X) place perdue:$8 ($9)},
+'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
     'checkpoint-baddir'  => q{data_directory invalide : "$1"},
     'checkpoint-baddir2' => q{pg_controldata n'a pas pu lire le répertoire des données indiqué : « $1 »},
     'checkpoint-badver'  => q{Échec lors de l'exécution de pg_controldata - probablement la mauvaise version},
@@ -368,7 +372,7 @@ our %msg = (
 'new-ver-dev'        => q{Cannot compare versions on development versions: you have $1 version $2},
 'new-ver-nolver'     => q{Could not determine local version information for $1},
     'new-ver-ok'          => q{La version $1 est la dernière pour $2},
-    'new-bc-warn'        => q{Merci de mettre à jour vers la version $1 de $2. Vous utilisez actuellement la $3},
+    'new-ver-warn'        => q{Merci de mettre à jour vers la version $1 de $2. Vous utilisez actuellement la $3},
 'new-ver-tt'         => q{Your version of $1 ($2) appears to be ahead of the current release! ($3)},
     'no-match-db'        => q{Aucune base de données trouvée à cause des options d'exclusion/inclusion},
     'no-match-fs'        => q{Aucun système de fichier trouvé à cause des options d'exclusion/inclusion},
@@ -376,6 +380,7 @@ our %msg = (
     'no-match-set'       => q{Aucun paramètre trouvé à cause des options d'exclusion/inclusion},
     'no-match-table'     => q{Aucune table trouvée à cause des options d'exclusion/inclusion},
     'no-match-user'      => q{Aucune entrée trouvée à cause options d'exclusion/inclusion},
+'no-parse-psql'      => q{Could not parse psql output!},
     'no-time-hires'      => q{N'a pas trouvé le module Time::HiRes, nécessaire quand « showtime » est activé},
     'opt-output-invalid' => q{Sortie invalide : doit être 'nagios' ou 'mrtg' ou 'simple' ou 'cacti'},
     'opt-psql-badpath'   => q{Argument invalide pour psql : doit être le chemin complet vers un fichier nommé psql},
@@ -384,12 +389,19 @@ our %msg = (
     'opt-psql-nofind'    => q{N'a pas pu trouver un psql exécutable},
     'opt-psql-nover'     => q{N'a pas pu déterminer la version de psql},
     'opt-psql-restrict'  => q{Ne peut pas utiliser l'option --PSQL si NO_PSQL_OPTION est activé},
+'pgbouncer-pool'     => q{Pool=$1 $2=$3},
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{Aucune transaction préparée trouvée},
+'psa-disabled'       => q{No queries - is stats_command_string or track_activities off?},
+'psa-noexact'        => q{Unknown error},
+'psa-nomatches'      => q{No queries were found},
+'psa-nosuper'        => q{No matches - please run as a superuser},
+'psa-skipped'        => q{No matching rows were found (skipped rows: $1)},
     'qtime-fail'         => q{Ne peut pas exécuter l'action txn_idle si stats_command_string est désactivé !},
     'qtime-msg'          => q{requête la plus longue : $1s},
     'qtime-nomatch'      => q{Aucune entrée correspondante n'a été trouvée},
+'Query'              => q{Query: $1},
     'range-badcs'        => q{Option « $1 » invalide : doit être une somme de contrôle},
     'range-badlock'      => q{Option « $1 » invalide : doit être un nombre de verrou ou « type1=#;type2=# »},
     'range-badpercent'   => q{Option « $1 » invalide : doit être un pourcentage},
@@ -1069,7 +1081,7 @@ sub add_response {
                 $db->{host} eq '<none>' ? '' : qq{(host:$db->{host}) },
                     defined $db->{port} ? ($db->{port} eq $opt{defaultport} ? '' : qq{(port=$db->{port}) }) : '';
     $header =~ s/\s+$//;
-    my $perf = ($opt{showtime} and $db->{totaltime} and $opt{action} ne 'bloat') ? "time=$db->{totaltime}" : '';
+    my $perf = ($opt{showtime} and $db->{totaltime} and $action ne 'bloat') ? "time=$db->{totaltime}" : '';
     if ($db->{perf}) {
         $perf .= " $db->{perf}";
     }
@@ -1270,6 +1282,7 @@ our %testaction = (
                   fsm_pages         => 'VERSION: 8.2 MAX: 8.3',
                   fsm_relations     => 'VERSION: 8.2 MAX: 8.3',
                   hot_standby_delay => 'VERSION: 9.0',
+                  listener          => 'MAX: 8.4',
 );
 if ($opt{test}) {
     print msgn('testmode-start');
@@ -1282,10 +1295,8 @@ if ($opt{test}) {
             next;
         }
         print msgn('testmode-ok', $db->{pname});
-        for (split /\n/ => $db->{slurp}) {
-            while (/(\S+)\s*\|\s*(.+)\s*/sg) { ## no critic (ProhibitUnusedCapture)
-                $set{$db->{pname}}{$1} = $2;
-            }
+        for (@{ $db->{slurp} }) {
+            $set{$_->{name}} = $_->{setting};
         }
     }
     for my $ac (split /\s+/ => $action) {
@@ -1296,7 +1307,7 @@ if ($opt{test}) {
             my ($rver,$rmaj,$rmin) = ($1,$2,$3);
             for my $db (@{$info->{db}}) {
                 next unless exists $db->{ok};
-                if ($set{$db->{pname}}{server_version} !~ /((\d+)\.(\d+))/) {
+                if ($set{server_version} !~ /((\d+)\.(\d+))/) {
                     print msgn('testmode-nover', $db->{pname});
                     next;
                 }
@@ -1312,12 +1323,12 @@ if ($opt{test}) {
             my ($rver,$rmaj,$rmin) = ($1,$2,$3);
             for my $db (@{$info->{db}}) {
                 next unless exists $db->{ok};
-                if ($set{$db->{pname}}{server_version} !~ /((\d+)\.(\d+))/) {
+                if ($set{server_version} !~ /((\d+)\.(\d+))/) {
                     print msgn('testmode-nover', $db->{pname});
                     next;
                 }
                 my ($sver,$smaj,$smin) = ($1,$2,$3);
-                if ($smaj > $rmaj) {
+                if ($smaj > $rmaj or ($smaj==$rmaj and $smin > $rmin)) {
                     print msgn('testmode-norun', $ac, $db->{pname}, $rver, $sver);
                 }
             }
@@ -1332,7 +1343,7 @@ if ($opt{test}) {
                     next if $op eq '>' and $db->{version} <= $ver;
                     next if $op eq '=' and $db->{version} != $ver;
                 }
-                my $val = $set{$db->{pname}}{$setting};
+                my $val = $set{$setting};
                 if ($val ne 'on') {
                     print msgn('testmode-noset', $ac, $db->{pname}, $setting);
                 }
@@ -2038,10 +2049,14 @@ sub run_command {
                 elsif ($line =~ /^\s+: (.*)/) {
                     $stuff[$num]{$lastval} .= "\n$1";
                 }
+                elsif ($line =~ /^\s+\| (.+)/) {
+                    $stuff[$num]{$lastval} .= "\n$1";
+                }
                 else {
-                    ### XXX msg these
-                    warn "Could not parse psql output!\n";
-                    warn "Please report these details to check_postgres\@bucardo.org:\n";
+                    my $msg = msg('no-parse-psql');
+                    warn "$msg\n";
+                    $msg = msg('bug-report');
+                    warn "$msg\n";
                     my $cline = (caller)[2];
                     my $args = join ' ' => @args;
                     warn "Version:      $VERSION\n";
@@ -3147,6 +3162,10 @@ sub check_custom_query {
             $goodrow++;
             $db->{perf} .= " $msg";
             my $gotmatch = 0;
+            if (! defined $data) {
+                add_unknown msg('custom-invalid');
+                return;
+            }
             if (length $critical) {
                 if (($valtype eq 'string' and $data eq $critical)
                     or
@@ -3159,7 +3178,7 @@ sub check_custom_query {
             if (length $warning and ! $gotmatch) {
                 if (($valtype eq 'string' and $data eq $warning)
                     or
-                    ($reverse ? $data <= $warning : $data >= $warning)) {
+                    (length $data and $reverse ? $data <= $warning : $data >= $warning)) {
                     add_warning "$data";
                     $gotmatch = 1;
                 }
@@ -3616,7 +3635,7 @@ FROM
 
     my $info = run_command($SQL, { version => [ ">8.3 $SQLNOOP" ] } );
 
-    if (exists $info->{db}[0]{fail}) {
+    if (exists $info->{db}[0]{slurp}[0]{fail}) {
         add_unknown msg('fsm-page-highver');
         return;
     }
@@ -3675,7 +3694,7 @@ FROM (SELECT
 
     my $info = run_command($SQL, { version => [ ">8.3 $SQLNOOP" ] } );
 
-    if (exists $info->{db}[0]{fail}) {
+    if (exists $info->{db}[0]{slurp}[0]{fail}) {
         add_unknown msg('fsm-rel-highver');
         return;
     }
@@ -4323,6 +4342,7 @@ sub check_new_version_tnm {
     return;
 
 } ## end of check_new_version_tnm
+
 
 sub check_pgbouncer_checksum {
 
@@ -6904,7 +6924,7 @@ WHERE xact_start IS NOT NULL $USERWHERECLAUSE
     ## Use of skip_item means we may have no matches
     if ($maxdb eq '?') {
         if ($USERWHERECLAUSE) { ## needed?
-            add_unknown msg('fixme-nomatch');
+            add_unknown msg('txntime-none');
         }
         else {
             add_ok msg('txntime-none');
@@ -7263,7 +7283,7 @@ sub check_hot_standby_delay {
 
 B<check_postgres.pl> - a Postgres monitoring script for Nagios, MRTG, Cacti, and others
 
-This documents describes check_postgres.pl version 2.15.2
+This documents describes check_postgres.pl version 2.15.4
 
 =head1 SYNOPSIS
 
@@ -8856,6 +8876,15 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
 =over 4
 
+=item B<Version 2.15.4> January 3, 2011
+
+  Fix warning when using symlinks
+    (Greg Sabino Mullane, reported by Peter Eisentraut in bug #63)
+
+=item B<Version 2.15.3> December 30, 2010
+
+  Show OK for no matching txn_idle entries.
+
 =item B<Version 2.15.2> December 28, 2010
 
   Better formatting of sizes in the bloat action output.
@@ -8871,7 +8900,7 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
 =item B<Version 2.15.0> November 8, 2010
 
-  Add --quiet argument to surpress output on OK Nagios results
+  Add --quiet argument to suppress output on OK Nagios results
   Add index comparison for same_schema (Norman Yamada and Greg Sabino Mullane)
   Use $ENV{PGSERVICE} instead of "service=" to prevent problems (Guillaume Lelarge)
   Add --man option to show the entire manual. (Andy Lester)
@@ -8962,7 +8991,7 @@ Items not specifically attributed are by Greg Sabino Mullane.
   Allow list of web fetch methods to be changed with the --get_method option.
   Add support for the --language argument, which overrides any ENV.
   Add the --no-check_postgresrc flag.
-  Ensure check_postgresrc options are completely overriden by command-line options.
+  Ensure check_postgresrc options are completely overridden by command-line options.
   Fix incorrect warning > critical logic in replicate_rows (Glyn Astill)
 
 =item B<Version 2.10.0> (August 3, 2009)
@@ -9018,8 +9047,8 @@ Items not specifically attributed are by Greg Sabino Mullane.
   French translations (Guillaume Lelarge)
   Make the backends search return ok if no matches due to inclusion rules,
     per report by Guillaume Lelarge (Greg)
-  Added comprehensive unit tests (Greg, Jeff Boes, Selena Decklemann)
-  Make fsm_pages and fsm_relatins handle 8.4 servers smoothly. (Greg)
+  Added comprehensive unit tests (Greg, Jeff Boes, Selena Deckelmann)
+  Make fsm_pages and fsm_relations handle 8.4 servers smoothly. (Greg)
   Fix missing 'upd' field in show_dbstats (Andras Fabian)
   Allow ENV{PGCONTROLDATA} and ENV{PGBINDIR}. (Greg)
   Add various Perl module infrastructure (e.g. Makefile.PL) (Greg)
@@ -9387,7 +9416,7 @@ Some example Nagios configuration settings using this script:
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright (c) 2007-2010 Greg Sabino Mullane <greg@endpoint.com>.
+Copyright (c) 2007-2011 Greg Sabino Mullane <greg@endpoint.com>.
 
 Redistribution and use in source and binary forms, with or without 
 modification, are permitted provided that the following conditions are met:
