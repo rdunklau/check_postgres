@@ -1,0 +1,11 @@
+This is the custom dalibo branch.
+
+Since there are some pacthes, signatures are out of date.
+Thus, checking them will lead to failure.
+
+Patches:
+  - Fix query_time action for PostgreSQL < 8.3
+  - Add hot_standby_delay action
+  - Order result by freshness of operation when using perflimit in
+    check_last_vacuum_analyze instead of relation name
+
