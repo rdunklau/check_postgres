@@ -7245,7 +7245,7 @@ sub check_hot_standby_delay {
 
         if (defined $replay) {
             my ($a, $b) = split(/\//, $replay);
-            s_rep_offset = (hex("ffffffff") * hex($a)) + hex($b);
+            $s_rep_offset = (hex("ffffffff") * hex($a)) + hex($b);
         }
 
         $saved_db = $db if ! defined $saved_db;
