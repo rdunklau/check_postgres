@@ -50,6 +50,7 @@
 		<li><a href="#disk_space"><strong>disk_space</strong></a></li>
 		<li><a href="#fsm_pages"><strong>fsm_pages</strong></a></li>
 		<li><a href="#fsm_relations"><strong>fsm_relations</strong></a></li>
+		<li><a href="#hot_standby_delay"><strong>hot_standby_delay</strong></a></li>
 		<li><a href="#index_size"><strong>index_size</strong></a></li>
 		<li><a href="#table_size"><strong>table_size</strong></a></li>
 		<li><a href="#relation_size"><strong>relation_size</strong></a></li>
@@ -61,6 +62,7 @@
 		<li><a href="#locks"><strong>locks</strong></a></li>
 		<li><a href="#logfile"><strong>logfile</strong></a></li>
 		<li><a href="#new_version_bc"><strong>new_version_bc</strong></a></li>
+		<li><a href="#new_version_box"><strong>new_version_box</strong></a></li>
 		<li><a href="#new_version_cp"><strong>new_version_cp</strong></a></li>
 		<li><a href="#new_version_pg"><strong>new_version_pg</strong></a></li>
 		<li><a href="#new_version_tnm"><strong>new_version_tnm</strong></a></li>
@@ -116,7 +118,7 @@
 <hr />
 <h1><a name="name">NAME</a></h1>
 <p><strong>check_postgres.pl</strong> - a Postgres monitoring script for Nagios, MRTG, Cacti, and others</p>
-<p>This documents describes check_postgres.pl version 2.15.4</p>
+<p>This documents describes check_postgres.pl version 2.17.0</p>
 <p>
 </p>
 <hr />
@@ -402,11 +404,12 @@ which determine if the output is displayed or not, where 'a' = all, 'c' = critic
 
 <dd>
 <p>Allows specification of the method used to fetch information for the <code>new_version_cp</code>, 
-<code>new_version_pg</code>, <code>new_version_bc</code>, and <code>new_version_tnm</code> checks. The following programs are tried, 
-in order, to grab the information from the web: GET, wget, fetch, curl, lynx, links. To force the use of just 
-one (and thus remove the overhead of trying all the others until one of those works), 
-enter one of the names as the argument to get_method. For example, a BSD box might enter 
-the following line in their <code>.check_postgresrc</code> file:</p>
+<code>new_version_pg</code>, <code>new_version_bc</code>, <code>new_version_box</code>, and <code>new_version_tnm</code> checks. 
+The following programs are tried, in order, to grab the information from the web: 
+GET, wget, fetch, curl, lynx, links. To force the use of just one (and thus remove the 
+overhead of trying all the others until one of those works), enter one of the names as 
+the argument to get_method. For example, a BSD box might enter the following line in 
+their <code>.check_postgresrc</code> file:</p>
 <pre>
   get_method=fetch</pre>
 </dd>
@@ -515,7 +518,7 @@ by use of the VACUUM command.) This action requires that stats collection be
 enabled on the target databases, and requires that ANALYZE is run frequently. 
 The <em>--include</em> and <em>--exclude</em> options can be used to filter out which tables 
 to look at. See the <a href="#basic_filtering">BASIC FILTERING</a> section for more details.</p>
-<p>The <em>--warning</em> and <em>--critical</em> options can be specified as sizes or percents.
+<p>The <em>--warning</em> and <em>--critical</em> options can be specified as sizes, percents, or both.
 Valid size units are bytes, kilobytes, megabytes, gigabytes, terabytes, exabytes, 
 petabytes, and zettabytes. You can abbreviate all of those with the first letter. Items 
 without units are assumed to be 'bytes'. The default values are '1 GB' and '5 GB'. The value 
@@ -537,13 +540,21 @@ index size is even more of a guess than the correct table size, but both
 should give a rough idea of how bloated things are.</p>
 <p>Example 1: Warn if any table on port 5432 is over 100 MB bloated, and critical if over 200 MB</p>
 <pre>
-  check_postgres_bloat --port=5432 --warning='100 M', --critical='200 M'</pre>
+  check_postgres_bloat --port=5432 --warning='100 M' --critical='200 M'</pre>
 <p>Example 2: Give a critical if table 'orders' on host 'sami' has more than 10 megs of bloat</p>
 <pre>
   check_postgres_bloat --host=sami --include=orders --critical='10 MB'</pre>
 <p>Example 3: Give a critical if table 'q4' on database 'sales' is over 50% bloated</p>
 <pre>
   check_postgres_bloat --db=sales --include=q4 --critical='50%'</pre>
+<p>Example 4: Give a critical any table is over 20% bloated <em>and</em> has over 150
+MB of bloat:</p>
+<pre>
+  check_postgres_bloat --port=5432 --critical='20% and 150 M'</pre>
+<p>Example 5: Give a critical any table is over 40% bloated <em>or</em> has over 500 MB
+of bloat:</p>
+<pre>
+  check_postgres_bloat --port=5432 --warning='500 M or 40%'</pre>
 <p>For MRTG output, the first line gives the highest number of wasted bytes for the tables, and the 
 second line gives the highest number of wasted bytes for the indexes. The fourth line gives the database 
 name, table name, and index name information. If you want to output the bloat ratio instead (how many 
@@ -573,11 +584,12 @@ Takes no <em>--warning</em> or <em>--critical</em> options.</p>
 <p>
 </p>
 <h2><a name="custom_query"><strong>custom_query</strong></a></h2>
-<p>(<code>symlink: check_postgres_custom_query</code>) Runs a custom query of your choosing, and parses the results. The query itself is passed in through 
-the <code>custom_query</code> argument, and should be kept as simple as possible. If at all possible, wrap it in 
-a view or a function to keep things easier to manage. The query should return one or two columns: the first 
-is the result that will be checked, and the second is any performance data you want sent. They must be returned 
-as columns named <em>result</em> and <em>data</em>.</p>
+<p>(<code>symlink: check_postgres_custom_query</code>) Runs a custom query of your choosing, and parses the results. 
+The query itself is passed in through the <code>query</code> argument, and should be kept as simple as possible. 
+If at all possible, wrap it in a view or a function to keep things easier to manage. The query should 
+return one or two columns. It is required that one of the coumns be named &quot;result&quot; and is the item 
+that will be checked against your warning and critical values. The second column is for the performance 
+data and any name can be used: this will be the 'value' inside the performance data section.</p>
 <p>At least one warning or critical argument must be specified. What these are set to depends on the type of 
 query you are running. There are four types of custom_queries that can be run, specified by the <code>valtype</code> 
 argument. If none is specified, this action defaults to 'integer'. The four types are:</p>
@@ -599,15 +611,17 @@ bytes are assumed. The first column should be an integer representing the number
 <p>Normally, an alert is triggered if the values returned are <strong>greater than</strong> or equal to the critical or warning 
 value. However, an option of <em>--reverse</em> will trigger the alert if the returned value is 
 <strong>lower than</strong> or equal to the critical or warning value.</p>
-<p>Example 1: Warn if any relation over 100 pages is named &quot;rad&quot;:</p>
+<p>Example 1: Warn if any relation over 100 pages is named &quot;rad&quot;, put the number of pages 
+inside the performance data section.</p>
 <pre>
-  check_postgres_custom_query --valtype=string -w &quot;rad&quot; --query=&quot;SELECT relname FROM pg_class WHERE relpages &gt; 100&quot; --port=5432</pre>
+  check_postgres_custom_query --valtype=string -w &quot;rad&quot; --query=
+    &quot;SELECT relname AS result, relpages AS pages FROM pg_class WHERE relpages &gt; 100&quot;</pre>
 <p>Example 2: Give a critical if the &quot;foobar&quot; function returns a number over 5MB:</p>
 <pre>
-  check_postgres_custom_query --port=5432 --critical='5MB'--valtype=size --query=&quot;SELECT foobar()&quot;</pre>
+  check_postgres_custom_query --critical='5MB'--valtype=size --query=&quot;SELECT foobar() AS result&quot;</pre>
 <p>Example 2: Warn if the function &quot;snazzo&quot; returns less than 42:</p>
 <pre>
-  check_postgres_custom_query --port=5432 --critical=42 --query=&quot;SELECT snazzo()&quot; --reverse</pre>
+  check_postgres_custom_query --critical=42 --query=&quot;SELECT snazzo() AS result&quot; --reverse</pre>
 <p>If you come up with a useful custom_query, consider sending in a patch to this program 
 to make it into a standard action that other people can use.</p>
 <p>This action does not support MRTG or simple output yet.</p>
@@ -769,7 +783,7 @@ the name of the table and the name of the trigger for each disabled trigger.</p>
 that you have the executable &quot;/bin/df&quot; available to report on disk sizes, and it 
 also needs to be run as a superuser, so it can examine the <strong>data_directory</strong> 
 setting inside of Postgres. The <em>--warning</em> and <em>--critical</em> options are 
-given in either sizes or percentages. If using sizes, the standard unit types 
+given in either sizes or percentages or both. If using sizes, the standard unit types 
 are allowed: bytes, kilobytes, gigabytes, megabytes, gigabytes, terabytes, or 
 exabytes. Each may be abbreviated to the first letter only; no units at all 
 indicates 'bytes'. The default values are '90%' and '95%'.</p>
@@ -789,6 +803,13 @@ maps to a file system: these can be included or excluded. See the
 <p>Example 2: Check that all file systems starting with /dev/sda are smaller than 10 GB and 11 GB (warning and critical)</p>
 <pre>
   check_postgres_disk_space --port=5432 --warning='10 GB' --critical='11 GB' --include=&quot;~^/dev/sda&quot;</pre>
+<p>Example 4: Make sure that no file system is both over 50% <em>and</em> has over 15 GB</p>
+<pre>
+  check_postgres_disk_space --critical='50% and 15 GB'</pre>
+<p>Example 5: Issue a warning if any file system is either over 70% full <em>or</em> has
+more than 1T</p>
+<pre>
+  check_postgres_disk_space --warning='1T or 75'</pre>
 <p>For MRTG output, returns the size in bytes of the file system on the first line, 
 and the name of the file system on the fourth line.</p>
 <p>
@@ -824,6 +845,18 @@ checking this information does require obtaining special locks on the free-space
 run this check with short intervals.</p>
 <p>For MRTG output, returns the percent of free-space-map on the first line, the number of relations currently used on 
 the second line.</p>
+<p>
+</p>
+<h2><a name="hot_standby_delay"><strong>hot_standby_delay</strong></a></h2>
+<p>(<code>symlink: check_hot_standby_delay</code>) Checks the streaming replication lag by computing the delta 
+between the xlog position of a master server and the one of the slaves connected to it. The slave_
+server must be in hot_standby (e.g. read only) mode, therefore the minimum version to use this_
+action is Postgres 9.0. The <em>--warning</em> and <em>--critical</em> options are the delta between xlog 
+location. These values should match the volume of transactions needed to have the streaming 
+replication disconnect from the master because of too much lag.</p>
+<p>You must provide information on how to reach the second database by a connection 
+parameter ending in the number 2, such as &quot;--dbport2=5543&quot;. If if it not given, 
+the action fails.</p>
 <p>
 </p>
 <h2><a name="index_size"><strong>index_size</strong></a></h2>
@@ -974,6 +1007,16 @@ replication system for Postgres: see <a href="http://bucardo.org">http://bucardo
 See also the information on the <code>--get_method</code> option.</p>
 <p>
 </p>
+<h2><a name="new_version_box"><strong>new_version_box</strong></a></h2>
+<p>(<code>symlink: check_postgres_new_version_box</code>) Checks if a newer version of the boxinfo 
+program is available. The current version is obtained by running <code>boxinfo.pl --version</code>.
+If a major upgrade is available, a warning is returned. If a revision upgrade is 
+available, a critical is returned. (boxinfo is a program for grabbing important 
+information from a server and putting it into a HTML format: see 
+<a href="http://bucardo.org/wiki/boxinfo">http://bucardo.org/wiki/boxinfo</a> for more information). See also the information on 
+the <code>--get_method</code> option.</p>
+<p>
+</p>
 <h2><a name="new_version_cp"><strong>new_version_cp</strong></a></h2>
 <p>(<code>symlink: check_postgres_new_version_cp</code>) Checks if a newer version of this program 
 (check_postgres.pl) is available, by grabbing the version from a small text file 
@@ -1098,9 +1141,9 @@ line lists the database.</p>
 <p>
 </p>
 <h2><a name="query_time"><strong>query_time</strong></a></h2>
-<p>(<code>symlink: check_postgres_query_time</code>) Checks the length of running queries on one or more databases. There is 
-no need to run this more than once on the same database cluster.
-Databases can be filtered 
+<p>(<code>symlink: check_postgres_query_time</code>) Checks the length of running queries on one or more databases. 
+There is no need to run this more than once on the same database cluster. Note that 
+this already excludes queries that are &quot;idle in transaction&quot;. Databases can be filtered 
 by using the <em>--include</em> and <em>--exclude</em> options. See the <a href="#basic_filtering">BASIC FILTERING</a>
 section for more details. You can also filter on the user running the 
 query with the <em>--includeuser</em> and <em>--excludeuser</em> options.
@@ -1294,21 +1337,30 @@ time and the database time. The fourth line returns the name of the database.</p
 <p>
 </p>
 <h2><a name="txn_idle"><strong>txn_idle</strong></a></h2>
-<p>(<code>symlink: check_postgres_txn_idle</code>) Checks the length of &quot;idle in transaction&quot; queries on one or more databases. There is 
-no need to run this more than once on the same database cluster. Databases can be filtered 
-by using the <em>--include</em> and <em>--exclude</em> options. See the <a href="#basic_filtering">BASIC FILTERING</a> 
+<p>(<code>symlink: check_postgres_txn_idle</code>) Checks the number and duration of &quot;idle
+in transaction&quot; queries on one or more databases. There is no need to run this
+more than once on the same database cluster. Databases can be filtered by
+using the <em>--include</em> and <em>--exclude</em> options. See the <a href="#basic_filtering">BASIC FILTERING</a>
 section below for more details.</p>
-<p>The <em>--warning</em> and <em>--critical</em> options are given as units of time, and both must 
-be provided (there are no defaults). Valid units are 'seconds', 'minutes', 'hours', 
-or 'days'. Each may be written singular or abbreviated to just the first letter. 
-If no units are given, the units are assumed to be seconds.</p>
+<p>The <em>--warning</em> and <em>--critical</em> options are given as units of time, signed
+integers, or integers for units of time, and both must be provided (there are
+no defaults). Valid units are 'seconds', 'minutes', 'hours', or 'days'. Each
+may be written singular or abbreviated to just the first letter. If no units
+are given and the numbers are unsigned, the units are assumed to be seconds.</p>
 <p>This action requires Postgres 8.0 or better. Additionally, if the version is less than 8.3, 
 the 'stats_command_string' parameter must be set to 'on'.</p>
 <p>Example 1: Give a warning if any connection has been idle in transaction for more than 15 seconds:</p>
 <pre>
   check_postgres_txn_idle --port=5432 --warning='15 seconds'</pre>
+<p>Example 2: Give a warning if there are 50 or more transactions</p>
+<pre>
+  check_postgres_txn_idle --port=5432 --warning='+50'</pre>
+<p>Example 3: Give a critical if 5 or more connections have been idle in
+transaction for more than 10 seconds:</p>
+<pre>
+  check_postgres_txn_idle --port=5432 --critical='5 for 10 seconds'</pre>
 <p>For MRTG output, returns the time in seconds the longest idle transaction has been running. The fourth 
-line returns the name of the database.</p>
+line returns the name of the database and other information about the longest transaction.</p>
 <p>
 </p>
 <h2><a name="txn_time"><strong>txn_time</strong></a></h2>
@@ -1567,7 +1619,47 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 <h1><a name="history">HISTORY</a></h1>
 <p>Items not specifically attributed are by Greg Sabino Mullane.</p>
 <dl>
-<dt><strong><a name="version_2_15_4" class="item"><strong>Version 2.15.4</strong></a></strong></dt>
+<dt><strong><a name="version_2_17_0" class="item"><strong>Version 2.17.0</strong></a></strong></dt>
+
+<dd>
+<pre>
+  Give detailed information and refactor txn_idle, txn_time, and query_time
+    (Per request from bug #61)</pre>
+<pre>
+  Set maxliagn to 8 in the bloat check if box identified as '64-bit'
+    (Michel Sijmons, bug #66)</pre>
+<pre>
+  Support non-standard version strings in the bloat check.
+    (Michel Sijmons and Gurjeet Singh, bug #66)</pre>
+<pre>
+  Allow &quot;and&quot;, &quot;or&quot; inside arguments (David E. Wheeler)</pre>
+<pre>
+  Add the &quot;new_version_box&quot; action.</pre>
+<pre>
+  Fix psql version regex (Peter Eisentraut, bug #69)</pre>
+<pre>
+  Standardize and clean up all perfdata ouput (bug #52)</pre>
+<pre>
+  Exclude &quot;idle in transaction&quot; from the query_time check (bug #43)</pre>
+<pre>
+  Fix the perflimit for the bloat action (bug #50)</pre>
+<pre>
+  Clean up the custom_query action a bit.</pre>
+</dd>
+<dt><strong><a name="version_2_16_0_january_20_2011" class="item"><strong>Version 2.16.0</strong> January 20, 2011</a></strong></dt>
+
+<dd>
+<pre>
+  Add new action 'hot_standby_delay' (Nicolas Thauvin)
+  Add cache-busting for the version-grabbing utilities.
+  Fix problem with going to next method for new_version_pg
+    (Greg Sabino Mullane, reported by Hywel Mallett in bug #65)
+  Allow /usr/local/etc as an alternative location for the 
+    check_postgresrc file (Hywel Mallett)
+  Do not use tgisconstraint in same_schema if Postgres &gt;= 9
+    (Guillaume Lelarge)</pre>
+</dd>
+<dt><strong><a name="version_2_15_4_january_3_2011" class="item"><strong>Version 2.15.4</strong> January 3, 2011</a></strong></dt>
 
 <dd>
 <pre>
@@ -1601,7 +1693,7 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 
 <dd>
 <pre>
-  Add --quiet argument to surpress output on OK Nagios results
+  Add --quiet argument to suppress output on OK Nagios results
   Add index comparison for same_schema (Norman Yamada and Greg Sabino Mullane)
   Use $ENV{PGSERVICE} instead of &quot;service=&quot; to prevent problems (Guillaume Lelarge)
   Add --man option to show the entire manual. (Andy Lester)
@@ -1716,7 +1808,7 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
   Allow list of web fetch methods to be changed with the --get_method option.
   Add support for the --language argument, which overrides any ENV.
   Add the --no-check_postgresrc flag.
-  Ensure check_postgresrc options are completely overriden by command-line options.
+  Ensure check_postgresrc options are completely overridden by command-line options.
   Fix incorrect warning &gt; critical logic in replicate_rows (Glyn Astill)</pre>
 </dd>
 <dt><strong><strong>Version 2.10.0</strong> (August 3, 2009)</strong></dt>
@@ -1746,7 +1838,7 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 <pre>
   Quote dbname in perf output for the backends check. (Davide Abrigo)
   Add 'fetch' as an alternative method for new_version checks, as this 
-    comes by default with FreeBSD. (Hywell Mallett)</pre>
+    comes by default with FreeBSD. (Hywel Mallett)</pre>
 </dd>
 <dt><strong><strong>Version 2.9.2</strong> (July 12, 2009)</strong></dt>
 
@@ -1790,8 +1882,8 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
   French translations (Guillaume Lelarge)
   Make the backends search return ok if no matches due to inclusion rules,
     per report by Guillaume Lelarge (Greg)
-  Added comprehensive unit tests (Greg, Jeff Boes, Selena Decklemann)
-  Make fsm_pages and fsm_relatins handle 8.4 servers smoothly. (Greg)
+  Added comprehensive unit tests (Greg, Jeff Boes, Selena Deckelmann)
+  Make fsm_pages and fsm_relations handle 8.4 servers smoothly. (Greg)
   Fix missing 'upd' field in show_dbstats (Andras Fabian)
   Allow ENV{PGCONTROLDATA} and ENV{PGBINDIR}. (Greg)
   Add various Perl module infrastructure (e.g. Makefile.PL) (Greg)

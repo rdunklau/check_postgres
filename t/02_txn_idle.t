@@ -6,7 +6,7 @@ use 5.006;
 use strict;
 use warnings;
 use Data::Dumper;
-use Test::More tests => 13;
+use Test::More tests => 14;
 use lib 't','.';
 use CP_Testing;
 
@@ -47,9 +47,6 @@ for my $arg (
    like ($cp->run(qq{-w "$arg"}), qr{^ERROR:.*?must be a valid time}, "$t ($arg)");
 }
 
-$t = qq{$S flags no-match-user};
-like ($cp->run(q{-w 0 --includeuser=gandalf}), qr{No matching.*user}, $t);
-
 if ($cp->run(q{-w 0 --output=simple}) > 0) {
     BAIL_OUT(qq{Cannot continue with "$S" test: txn_idle count > 0\nIs someone else connected to your test database?});
 }
@@ -60,6 +57,7 @@ like ($result, qr{no idle in transaction}, $t);
 $t .= ' (MRTG)';
 is ($cp->run(q{--output=mrtg -w 0}), qq{0\n0\n\nDB: $dbname\n}, $t);
 
+
 $t = qq{$S identifies idle};
 my $idle_dbh = $cp->test_database_handle();
 $idle_dbh->do('SELECT 1');
@@ -67,7 +65,18 @@ sleep(1);
 like ($cp->run(q{-w 0}), qr{longest idle in txn: \d+s}, $t);
 
 $t .= ' (MRTG)';
-like ($cp->run(q{--output=mrtg -w 0}), qr{\d+\n0\n\nDB: $dbname\n}, $t);
+like ($cp->run(q{--output=mrtg -w 0}), qr{\d+\n0\n\nPID:\d+ database:$dbname username:check_postgres_testing\n}, $t);
+
+sleep(1);
+
+# Try integers.
+$t = qq{$S identifies idle using +0};
+like ($cp->run(q{-w +0}), qr{Total idle in transaction: \d+\b}, $t);
+
+# Try both.
+sleep(1);
+$t = qq{$S identifies idle using '1 for 2s'};
+like ($cp->run(q{-w '1 for 2s'}), qr{1 idle transactions longer than 2s, longest: \d+s}, $t);
 
 $idle_dbh->commit;
 

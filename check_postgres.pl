@@ -30,7 +30,7 @@ $Data::Dumper::Varname = 'POSTGRES';
 $Data::Dumper::Indent = 2;
 $Data::Dumper::Useqq = 1;
 
-our $VERSION = '2.16.0';
+our $VERSION = '2.17.0';
 
 use vars qw/ %opt $PSQL $res $COM $SQL $db /;
 
@@ -87,6 +87,7 @@ our @get_methods = (
 our %msg = (
 'en' => {
     'address'            => q{address},
+    'age'                => q{age},
     'backends-fatal'     => q{Could not connect: too many connections},
     'backends-mrtg'      => q{DB=$1 Max connections=$2},
     'backends-msg'       => q{$1 of $2 connections ($3%)},
@@ -100,7 +101,7 @@ our %msg = (
     'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
     'checkpoint-baddir'  => q{Invalid data_directory: "$1"},
     'checkpoint-baddir2' => q{pg_controldata could not read the given data directory: "$1"},
-    'checkpoint-badver'  => q{Failed to run pg_controldata - probably the wrong version},
+    'checkpoint-badver'  => q{Failed to run pg_controldata - probably the wrong version ($1)},
     'checkpoint-badver2' => q{Failed to run pg_controldata - is it the correct version?},
     'checkpoint-nodir'   => q{Must supply a --datadir argument or set the PGDATA environment variable},
     'checkpoint-nodp'    => q{Must install the Perl module Date::Parse to use the checkpoint action},
@@ -110,7 +111,6 @@ our %msg = (
     'checkpoint-ok'      => q{Last checkpoint was 1 second ago},
     'checkpoint-ok2'     => q{Last checkpoint was $1 seconds ago},
     'checkpoint-po'      => q{Time of latest checkpoint:},
-    'checksum-badline'   => q{Invalid pg_setting line: $1},
     'checksum-msg'       => q{checksum: $1},
     'checksum-nomd'      => q{Must install the Perl module Digest::MD5 to use the checksum action},
     'checksum-nomrtg'    => q{Must provide a checksum via the --mrtg option},
@@ -130,21 +130,23 @@ our %msg = (
     'diskspace-nodf'     => q{Could not find required executable /bin/df},
     'diskspace-nodir'    => q{Could not find data directory "$1"},
     'file-noclose'       => q{Could not close $1: $2},
+    'files'              => q{files},
     'fsm-page-highver'   => q{Cannot check fsm_pages on servers version 8.4 or greater},
     'fsm-page-msg'       => q{fsm page slots used: $1 of $2 ($3%)},
     'fsm-rel-highver'    => q{Cannot check fsm_relations on servers version 8.4 or greater},
     'fsm-rel-msg'        => q{fsm relations used: $1 of $2 ($3%)},
     'hs-no-role'         => q{Not a master/slave couple},
     'hs-no-location'     => q{Could not get current xlog location on $1},
+    'hs-receive-delay'   => q{receive-delay},
+    'hs-replay-delay'    => q{replay_delay},
     'invalid-option'     => q{Invalid option},
     'invalid-query'      => q{Invalid query returned: $1},
-    'listener-count'     => q{ listening=$1}, ## needs leading space
     'listener-msg'       => q{listeners found: $1},
+    'listening'          => q{listening},
     'locks-msg'          => q{total "$1" locks: $2},
     'locks-msg2'         => q{total locks: $1},
     'logfile-bad'        => q{Invalid logfile "$1"},
-    'logfile-debug'      => q{Dest is $1, dir is $2, file is $3, facility is $4},
-    'logfile-debug2'     => q{Final logfile: $1},
+    'logfile-debug'      => q{Final logfile: $1},
     'logfile-dne'        => q{logfile $1 does not exist!},
     'logfile-fail'       => q{fails logging to: $1},
     'logfile-ok'         => q{logs to: $1},
@@ -153,7 +155,6 @@ our %msg = (
     'logfile-seekfail'   => q{Seek on $1 failed: $2},
     'logfile-stderr'     => q{Logfile output has been redirected to stderr: please provide a filename},
     'logfile-syslog'     => q{Database is using syslog, please specify path with --logfile option (fac=$1)},
-    'maxtime'            => q{ maxtime=$1}, ## needs leading space
     'mrtg-fail'          => q{Action $1 failed: $2},
     'new-ver-nocver'     => q{Could not download version information for $1},
     'new-ver-badver'     => q{Could not parse version information for $1},
@@ -183,13 +184,14 @@ our %msg = (
     'preptxn-none'       => q{No prepared transactions found},
     'psa-disabled'       => q{No queries - is stats_command_string or track_activities off?},
     'psa-noexact'        => q{Unknown error},
-    'psa-nomatches'      => q{No queries were found},
     'psa-nosuper'        => q{No matches - please run as a superuser},
-    'psa-skipped'        => q{No matching rows were found (skipped rows: $1)},
-    'qtime-fail'         => q{Cannot run the txn_idle action unless stats_command_string is set to 'on'!},
-    'qtime-msg'          => q{longest query: $1s},
-    'qtime-nomatch'      => q{No queries were found},
-    'Query'              => q{Query: $1},
+    'qtime-count-msg'    => q{Total queries: $1},
+    'qtime-count-none'   => q{not more than $1 queries},
+    'qtime-for-msg'      => q{$1 queries longer than $2s, longest: $3s$4 $5},
+    'qtime-msg'          => q{longest query: $1s$2 $3},
+    'qtime-none'         => q{no queries},
+    'queries'            => q{queries},
+    'query-time'         => q{query_time},
     'range-badcs'        => q{Invalid '$1' option: must be a checksum},
     'range-badlock'      => q{Invalid '$1' option: must be number of locks, or "type1=#;type2=#"},
     'range-badpercent'   => q{Invalid '$1' option: must be a percentage},
@@ -215,6 +217,7 @@ our %msg = (
     'range-warnbigsize'  => q{The 'warning' option ($1 bytes) cannot be larger than the 'critical' option ($2 bytes)},
     'range-warnbigtime'  => q{The 'warning' option ($1 s) cannot be larger than the 'critical' option ($2 s)},
     'range-warnsmall'    => q{The 'warning' option cannot be less than the 'critical' option},
+    'range-nointfortime' => q{Invalid argument for '$1' options: must be an integer, time or integer for time},
     'relsize-msg-ind'    => q{largest index is "$1": $2},
     'relsize-msg-reli'   => q{largest relation is index "$1": $2},
     'relsize-msg-relt'   => q{largest relation is table "$1": $2},
@@ -246,6 +249,7 @@ our %msg = (
     'seq-die'            => q{Could not determine information about sequence $1},
     'seq-msg'            => q{$1=$2% (calls left=$3)},
     'seq-none'           => q{No sequences found},
+    'size'               => q{size},
     'slony-noschema'     => q{Could not determine the schema for Slony},
     'slony-nonumber'     => q{Call to sl_status did not return a number},
     'slony-noparse'      => q{Could not parse call to sl_status},
@@ -278,20 +282,26 @@ our %msg = (
     'time-weeks'         => q{weeks},
     'time-year'          => q{year},
     'time-years'         => q{years},
-    'timesync-diff'      => q{ diff=$1}, ## needs leading space
+    'timesync-diff'      => q{diff},
     'timesync-msg'       => q{timediff=$1 DB=$2 Local=$3},
+    'transactions'       => q{transactions},
     'trigger-msg'        => q{Disabled triggers: $1},
-    'txnidle-msg'        => q{longest idle in txn: $1s},
+    'txn-time'           => q{transaction_time},
+    'txnidle-count-msg'  => q{Total idle in transaction: $1},
+    'txnidle-count-none' => q{not more than $1 idle in transaction},
+    'txnidle-for-msg'    => q{$1 idle transactions longer than $2s, longest: $3s$4 $5},
+    'txnidle-msg'        => q{longest idle in txn: $1s$2 $3},
     'txnidle-none'       => q{no idle in transaction},
-    'txntime-fail'       => q{Query failed},
-    'txntime-msg'        => q{longest txn: $1s},
+    'txntime-count-msg'  => q{Total transactions: $1},
+    'txntime-count-none' => q{not more than $1 transactions},
+    'txntime-for-msg'    => q{$1 transactions longer than $2s, longest: $3s$4 $5},
+    'txntime-msg'        => q{longest txn: $1s$2 $3},
     'txntime-none'       => q{No transactions},
     'txnwrap-cbig'       => q{The 'critical' value must be less than 2 billion},
     'txnwrap-wbig'       => q{The 'warning' value must be less than 2 billion},
     'unknown-error'      => q{Unknown error},
     'usage'              => qq{\nUsage: \$1 <options>\n Try "\$1 --help" for a complete list of options\n Try "\$1 --man" for the full manual\n},
     'username'           => q{username},
-    'vac-msg'            => q{DB: $1 TABLE: $2},
     'vac-nomatch-a'      => q{No matching tables have ever been analyzed},
     'vac-nomatch-v'      => q{No matching tables have ever been vacuumed},
     'version'            => q{version $1},
@@ -301,6 +311,7 @@ our %msg = (
 },
 'fr' => {
     'address'            => q{adresse},
+'age'                => q{age},
     'backends-fatal'     => q{N'a pas pu se connecter : trop de connexions},
     'backends-mrtg'      => q{DB=$1 Connexions maximum=$2},
     'backends-msg'       => q{$1 connexions sur $2 ($3%)},
@@ -311,10 +322,10 @@ our %msg = (
     'bloat-index'        => q{(db $1) index $2 lignes:$3 pages:$4 devrait être:$5 ($6X) octets perdus:$7 ($8)},
     'bloat-nomin'        => q{aucune relation n'atteint le critère minimum de fragmentation},
     'bloat-table'        => q{(db $1) table $2.$3 lignes:$4 pages:$5 devrait être:$6 ($7X) place perdue:$8 ($9)},
-'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
+    'bug-report'         => q{Merci de rapporter ces d??tails ?? check_postgres@bucardo.org:},
     'checkpoint-baddir'  => q{data_directory invalide : "$1"},
     'checkpoint-baddir2' => q{pg_controldata n'a pas pu lire le répertoire des données indiqué : « $1 »},
-    'checkpoint-badver'  => q{Échec lors de l'exécution de pg_controldata - probablement la mauvaise version},
+    'checkpoint-badver'  => q{Échec lors de l'exécution de pg_controldata - probablement la mauvaise version ($1)},
     'checkpoint-badver2' => q{Échec lors de l'exécution de pg_controldata - est-ce la bonne version ?},
     'checkpoint-nodir'   => q{Vous devez fournir un argument --datadir ou configurer la variable d'environnement PGDATA},
     'checkpoint-nodp'    => q{Vous devez installer le module Perl Date::Parse pour utiliser l'action checkpoint},
@@ -324,7 +335,6 @@ our %msg = (
     'checkpoint-ok'      => q{Le dernier CHECKPOINT est survenu il y a une seconde},
     'checkpoint-ok2'     => q{Le dernier CHECKPOINT est survenu il y a $1 secondes},
     'checkpoint-po'      => q{Heure du dernier point de contr�le :},
-    'checksum-badline'   => q{Ligne pg_setting invalide : $1},
     'checksum-msg'       => q{somme de contrôle : $1},
     'checksum-nomd'      => q{Vous devez installer le module Perl Digest::MD5 pour utiliser l'action checksum},
     'checksum-nomrtg'    => q{Vous devez fournir une somme de contrôle avec l'option --mrtg},
@@ -343,20 +353,24 @@ our %msg = (
     'diskspace-nodata'   => q{N'a pas pu déterminer data_directory : êtes-vous connecté en tant que super-utilisateur ?},
     'diskspace-nodf'     => q{N'a pas pu trouver l'exécutable /bin/df},
     'diskspace-nodir'    => q{N'a pas pu trouver le répertoire des données « $1 »},
+'files'              => q{files},
     'file-noclose'       => q{N'a pas pu fermer $1 : $2},
     'fsm-page-highver'   => q{Ne peut pas vérifier fsm_pages sur des serveurs en version 8.4 ou ultérieure},
     'fsm-page-msg'       => q{emplacements de pages utilisés par la FSM : $1 sur $2 ($3%)},
     'fsm-rel-highver'    => q{Ne peut pas vérifier fsm_relations sur des serveurs en version 8.4 ou ultérieure},
     'fsm-rel-msg'        => q{relations tracées par la FSM : $1 sur $2 ($3%)},
+    'hs-no-role'         => q{Pas de couple ma??tre/esclave},
+    'hs-no-location'     => q{N'a pas pu obtenir l'emplacement courant dans le journal des transactions sur $1},
+'hs-receive-delay'   => q{receive-delay},
+'hs-replay-delay'    => q{replay_delay},
     'invalid-option'     => q{Option invalide},
     'invalid-query'      => q{Une requête invalide a renvoyé : $1},
-    'listener-count'     => q{ en écoute=$1}, ## needs leading space
     'listener-msg'       => q{processus LISTEN trouvés : $1},
+    'listening'          => q{en écoute},
     'locks-msg'          => q{total des verrous « $1 » : $2},
     'locks-msg2'         => q{total des verrous : $1},
     'logfile-bad'        => q{Option logfile invalide « $1 »},
-    'logfile-debug'      => q{la destination est $1, le répertoire est $2, le fichier est $3, l'option facility est $4},
-    'logfile-debug2'     => q{Journal applicatif final : $1},
+    'logfile-debug'      => q{Journal applicatif final : $1},
     'logfile-dne'        => q{le journal applicatif $1 n'existe pas !},
     'logfile-fail'       => q{échec pour tracer dans : $1},
     'logfile-ok'         => q{trace dans : $1},
@@ -365,22 +379,21 @@ our %msg = (
     'logfile-seekfail'   => q{Échec de la recherche dans $1 : $2},
     'logfile-stderr'     => q{La sortie des traces a été redirigés stderr : merci de fournir un nom de fichier},
     'logfile-syslog'     => q{La base de données utiliser syslog, merci de spécifier le chemin avec l'option --logfile (fac=$1)},
-    'maxtime'            => q{ maxtime=$1}, ## needs leading space
     'mrtg-fail'          => q{Échec de l'action $1 : $2},
-'new-ver-nocver'     => q{Could not download version information for $1},
-'new-ver-badver'     => q{Could not parse version information for $1},
-'new-ver-dev'        => q{Cannot compare versions on development versions: you have $1 version $2},
-'new-ver-nolver'     => q{Could not determine local version information for $1},
+    'new-ver-nocver'     => q{N'a pas pu t??l??charger les informations de version pour $1},
+    'new-ver-badver'     => q{N'a pas pu analyser les informations de version pour $1},
+    'new-ver-dev'        => q{Ne peut pas comparer les versions sur des versions de d??veloppement : vous avez $1 version $2},
+    'new-ver-nolver'     => q{N'a pas pu d??terminer les informations de version locale pour $1},
     'new-ver-ok'          => q{La version $1 est la dernière pour $2},
     'new-ver-warn'        => q{Merci de mettre à jour vers la version $1 de $2. Vous utilisez actuellement la $3},
-'new-ver-tt'         => q{Your version of $1 ($2) appears to be ahead of the current release! ($3)},
+    'new-ver-tt'         => q{Votre version de $1 ($2) semble ult??rieure ?? la version courante ! ($3)},
     'no-match-db'        => q{Aucune base de données trouvée à cause des options d'exclusion/inclusion},
     'no-match-fs'        => q{Aucun système de fichier trouvé à cause des options d'exclusion/inclusion},
     'no-match-rel'       => q{Aucune relation trouvée à cause des options d'exclusion/inclusion},
     'no-match-set'       => q{Aucun paramètre trouvé à cause des options d'exclusion/inclusion},
     'no-match-table'     => q{Aucune table trouvée à cause des options d'exclusion/inclusion},
     'no-match-user'      => q{Aucune entrée trouvée à cause options d'exclusion/inclusion},
-'no-parse-psql'      => q{Could not parse psql output!},
+    'no-parse-psql'      => q{N'a pas pu analyser la sortie de psql !},
     'no-time-hires'      => q{N'a pas trouvé le module Time::HiRes, nécessaire quand « showtime » est activé},
     'opt-output-invalid' => q{Sortie invalide : doit être 'nagios' ou 'mrtg' ou 'simple' ou 'cacti'},
     'opt-psql-badpath'   => q{Argument invalide pour psql : doit être le chemin complet vers un fichier nommé psql},
@@ -389,19 +402,20 @@ our %msg = (
     'opt-psql-nofind'    => q{N'a pas pu trouver un psql exécutable},
     'opt-psql-nover'     => q{N'a pas pu déterminer la version de psql},
     'opt-psql-restrict'  => q{Ne peut pas utiliser l'option --PSQL si NO_PSQL_OPTION est activé},
-'pgbouncer-pool'     => q{Pool=$1 $2=$3},
+    'pgbouncer-pool'     => q{Pool=$1 $2=$3},
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{Aucune transaction préparée trouvée},
-'psa-disabled'       => q{No queries - is stats_command_string or track_activities off?},
-'psa-noexact'        => q{Unknown error},
-'psa-nomatches'      => q{No queries were found},
-'psa-nosuper'        => q{No matches - please run as a superuser},
-'psa-skipped'        => q{No matching rows were found (skipped rows: $1)},
-    'qtime-fail'         => q{Ne peut pas exécuter l'action txn_idle si stats_command_string est désactivé !},
-    'qtime-msg'          => q{requête la plus longue : $1s},
-    'qtime-nomatch'      => q{Aucune entrée correspondante n'a été trouvée},
-'Query'              => q{Query: $1},
+    'psa-disabled'       => q{Pas de requ??te - est-ce que stats_command_string ou track_activities sont d??sactiv??s ?},
+    'psa-noexact'        => q{Erreur inconnue},
+    'psa-nosuper'        => q{Aucune correspondance - merci de m'ex??cuter en tant que superutilisateur},
+'qtime-count-msg'    => q{Total queries: $1},
+'qtime-count-none'   => q{not more than $1 queries},
+'qtime-for-msg'      => q{$1 queries longer than $2s, longest: $3s$4 $5},
+    'qtime-msg'          => q{requête la plus longue : $1s$2 $3},
+'qtime-none'         => q{no queries},
+'queries'            => q{queries},
+'query-time'         => q{query_time},
     'range-badcs'        => q{Option « $1 » invalide : doit être une somme de contrôle},
     'range-badlock'      => q{Option « $1 » invalide : doit être un nombre de verrou ou « type1=#;type2=# »},
     'range-badpercent'   => q{Option « $1 » invalide : doit être un pourcentage},
@@ -427,6 +441,7 @@ our %msg = (
     'range-warnbigsize'  => q{L'option warning ($1 octets) ne peut pas être plus grand que l'option critical ($2 octets)},
     'range-warnbigtime'  => q{L'option warning ($1 s) ne peut pas être plus grand que l'option critical ($2 s)},
     'range-warnsmall'    => q{L'option warningne peut pas être plus petit que l'option critical},
+'range-nointfortime' => q{Invalid argument for '$1' options: must be an integer, time or integer for time},
     'relsize-msg-ind'    => q{le plus gros index est « $1 » : $2},
     'relsize-msg-reli'   => q{la plus grosse relation est l'index « $1 » : $2},
     'relsize-msg-relt'   => q{la plus grosse relation est la table « $1 » : $2},
@@ -455,6 +470,7 @@ our %msg = (
     'runtime-msg'        => q{durée d'exécution de la requête : $1 secondes},
     'same-failed'        => q{Les bases de données sont différentes. Éléments différents : $1},
     'same-matched'       => q{Les bases de données ont les mêmes éléments},
+'size'               => q{size},
     'slony-noschema'     => q{N'a pas pu déterminer le schéma de Slony},
     'slony-nonumber'     => q{L'appel à sl_status n'a pas renvoyé un numéro},
     'slony-noparse'      => q{N'a pas pu analyser l'appel à sl_status},
@@ -490,20 +506,26 @@ our %msg = (
     'time-weeks'         => q{semaines},
     'time-year'          => q{année},
     'time-years'         => q{années},
-    'timesync-diff'      => q{ diff=$1}, ## needs leading space
+    'timesync-diff'      => q{diff},
     'timesync-msg'       => q{timediff=$1 Base de données=$2 Local=$3},
+'transactions'       => q{transactions},
     'trigger-msg'        => q{Triggers désactivés : $1},
-    'txnidle-msg'        => q{transaction en attente la plus longue : $1s},
+'txn-time'           => q{transaction_time},
+'txnidle-count-msg'  => q{Total idle in transaction: $1},
+    'txnidle-count-none' => q{pas plus de $1 transaction en attente},
+'txnidle-for-msg'    => q{$1 idle transactions longer than $2s, longest: $3s$4 $5},
+    'txnidle-msg'        => q{transaction en attente la plus longue : $1s$2 $3},
     'txnidle-none'       => q{Aucun processus en attente dans une transaction},
-    'txntime-fail'       => q{Échec de la requête},
-    'txntime-msg'        => q{Transaction la plus longue : $1s},
+'txntime-count-msg'  => q{Total transactions: $1},
+'txntime-count-none' => q{not more than $1 transactions},
+'txntime-for-msg'    => q{$1 transactions longer than $2s, longest: $3s$4 $5},
+    'txntime-msg'        => q{Transaction la plus longue : $1s$2 $3},
     'txntime-none'       => q{Aucune transaction},
     'txnwrap-cbig'       => q{La valeur critique doit être inférieure à 2 milliards},
     'txnwrap-wbig'       => q{La valeur d'avertissement doit être inférieure à 2 milliards},
     'unknown-error'      => q{erreur inconnue},
     'usage'              => qq{\nUsage: \$1 <options>\n Essayez « \$1 --help » pour liste complète des options\n\n},
     'username'           => q{nom utilisateur},
-    'vac-msg'            => q{Base de données : $1 Table : $2},
     'vac-nomatch-a'      => q{Aucune des tables correspondantes n'a eu d'opération ANALYZE},
     'vac-nomatch-v'      => q{Aucune des tables correspondantes n'a eu d'opération VACUUM},
     'version'            => q{version $1},
@@ -636,6 +658,9 @@ if (! $opt{'no-check_postgresrc'}) {
     elsif (-e '/etc/check_postgresrc') {
         $rcfile = '/etc/check_postgresrc';
     }
+    elsif (-e '/usr/local/etc/check_postgresrc') {
+        $rcfile = '/usr/local/etc/check_postgresrc';
+    }
 }
 ## We need a temporary hash so that multi-value options can be overridden on the command line
 my %tempopt;
@@ -689,6 +714,7 @@ die $USAGE unless
                \%opt,
                'version|V',
                'verbose|v+',
+               'vv',
                'help|h',
                'quiet|q',
                'man',
@@ -756,8 +782,9 @@ for my $mv (keys %tempopt) {
 }
 
 our $VERBOSE = $opt{verbose} || 0;
+$VERBOSE = 5 if $opt{vv};
 
-our $OUTPUT = lc $opt{output} || '';
+our $OUTPUT = lc($opt{output} || '');
 
 ## Allow the optimization of the get_methods list by an argument
 if ($opt{get_method}) {
@@ -864,6 +891,7 @@ our $action_info = {
  locks               => [0, 'Checks the number of locks.'],
  logfile             => [1, 'Checks that the logfile is being written to correctly.'],
  new_version_bc      => [0, 'Checks if a newer version of Bucardo is available.'],
+ new_version_box     => [0, 'Checks if a newer version of boxinfo is available.'],
  new_version_cp      => [0, 'Checks if a newer version of check_postgres.pl is available.'],
  new_version_pg      => [0, 'Checks if a newer version of Postgres is available.'],
  new_version_tnm     => [0, 'Checks if a newer version of tail_n_mail is available.'],
@@ -1042,7 +1070,7 @@ if (! defined $PSQL or ! length $PSQL) {
 }
 -x $PSQL or ndie msg('opt-psql-noexec', $PSQL);
 $res = qx{$PSQL --version};
-$res =~ /psql.+(\d+\.\d+)/ or ndie msg('opt-psql-nover');
+$res =~ /psql\D+(\d+\.\d+)/ or ndie msg('opt-psql-nover');
 our $psql_version = $1;
 
 $VERBOSE >= 2 and warn qq{psql=$PSQL version=$psql_version\n};
@@ -1078,13 +1106,17 @@ sub add_response {
     my $header = sprintf q{%s%s%s},
         $action_info->{$action}[0] ? '' : (defined $dbservice and length $dbservice) ?
             qq{service=$dbservice } : qq{DB "$dbname" },
-                $db->{host} eq '<none>' ? '' : qq{(host:$db->{host}) },
+                (!$db->{host} or $db->{host} eq '<none>') ? '' : qq{(host:$db->{host}) },
                     defined $db->{port} ? ($db->{port} eq $opt{defaultport} ? '' : qq{(port=$db->{port}) }) : '';
     $header =~ s/\s+$//;
-    my $perf = ($opt{showtime} and $db->{totaltime} and $action ne 'bloat') ? "time=$db->{totaltime}" : '';
+    my $perf = ($opt{showtime} and $db->{totaltime} and $action ne 'bloat') ? "time=$db->{totaltime}s" : '';
     if ($db->{perf}) {
-        $perf .= " $db->{perf}";
+        $db->{perf} =~ s/^ +//;
+        $perf .= sprintf '%s%s', length($perf) ? ' ' : '', $db->{perf};
     }
+    ## Strip trailing semicolons as allowed by the Nagios spec
+    $perf =~ s/; / /;
+    $perf =~ s/;$//;
     push @{$type->{$header}} => [$msg,$perf];
 
     return;
@@ -1154,7 +1186,8 @@ sub do_mrtg_stats {
 
     ## Show the two highest items for mrtg stats hash
 
-    my $msg = shift || msg('unknown-error');
+    my $msg = shift;
+    defined $msg or ndie('unknown-error');
 
     keys %stats or bad_mrtg($msg);
     my ($one,$two) = ('','');
@@ -1207,16 +1240,21 @@ sub finishup {
                 join $SEP => map { $_->[0] } @{$info->{$_}};
         }
         if ($opt{showperf}) {
-            print '| ';
+            my $pmsg = '';
             for (sort keys %$info) {
                 my $m = sprintf '%s ', join ' ' => map { $_->[1] } @{$info->{$_}};
                 if ($VERBOSE) {
                     $m =~ s/  /\n/g;
                 }
-                print $m;
+                $pmsg .= $m;
             }
+            $pmsg =~ s/^\s+//;
+            $pmsg and print "| $pmsg";
         }
         print "\n";
+
+        return;
+
     }
 
     if (keys %critical) {
@@ -1551,6 +1589,9 @@ check_new_version_pg() if $action eq 'new_version_pg';
 
 ## Check for new versions of Bucardo
 check_new_version_bc() if $action eq 'new_version_bc';
+
+## Check for new versions of boxinfo
+check_new_version_box() if $action eq 'new_version_box';
 
 ## Check for new versions of tail_n_mail
 check_new_version_tnm() if $action eq 'new_version_tnm';
@@ -2038,7 +2079,7 @@ sub run_command {
                     $num++;
                     next;
                 }
-                if ($line =~ /^(\w+)\s+\| (.*)/) {
+                if ($line =~ /^([\?\w]+)\s+\| (.*)/) {
                     $stuff[$num]{$1} = $2;
                     $lastval = $1;
                 }
@@ -2342,18 +2383,18 @@ sub validate_range {
     }
     elsif ($type =~ /integer/) {
         $warning =~ s/_//g;
-        if (length $warning and $warning !~ /^\d+$/) {
+        if (length $warning and $warning !~ /^[-+]?\d+$/) {
             ndie $type =~ /positive/ ? msg('range-int-pos', 'warning') : msg('range-int', 'warning');
         }
-        elsif (length $warning && $type =~ /positive/ && $warning <= 0) {
+        elsif (length $warning and $type =~ /positive/ and $warning <= 0) {
             ndie msg('range-int-pos', 'warning');
         }
 
         $critical =~ s/_//g;
-        if (length $critical and $critical !~ /^\d+$/) {
+        if (length $critical and $critical !~ /^[-+]?\d+$/) {
             ndie $type =~ /positive/ ? msg('range-int-pos', 'critical') : msg('range-int', 'critical');
         }
-        elsif (length $critical && $type =~ /positive/ && $critical <= 0) {
+        elsif (length $critical and $type =~ /positive/ and $critical <= 0) {
             ndie msg('range-int-pos', 'critical');
         }
 
@@ -2367,6 +2408,8 @@ sub validate_range {
             ) {
             ndie msg('range-warnbig');
         }
+        $warning = int $warning if length $warning;
+        $critical = int $critical if length $critical;
     }
     elsif ('restringex' eq $type) {
         if (! length $critical and ! length $warning) {
@@ -2381,14 +2424,16 @@ sub validate_range {
     }
     elsif ('percent' eq $type) {
         if (length $critical) {
-            if ($critical !~ /^\d+\%$/) {
+            if ($critical !~ /^(\d+)\%$/) {
                 ndie msg('range-badpercent', 'critical');
             }
+            $critical = $1;
         }
         if (length $warning) {
-            if ($warning !~ /^\d+\%$/) {
+            if ($warning !~ /^(\d+)\%$/) {
                 ndie msg('range-badpercent', 'warning');
             }
+            $warning = $1;
         }
     }
     elsif ('size or percent' eq $type) {
@@ -2488,6 +2533,135 @@ sub validate_range {
 } ## end of validate_range
 
 
+sub validate_size_or_percent_with_oper {
+
+    my $arg = shift || {};
+    ndie qq{validate_range must be called with a hashref\n}
+        unless ref $arg eq 'HASH';
+
+    my $warning  = exists $opt{warning}  ? $opt{warning} :
+        exists $opt{critical} ? '' : $arg->{default_warning} || '';
+    my $critical = exists $opt{critical} ? $opt{critical} :
+        exists $opt{warning} ? '' : $arg->{default_critical} || '';
+
+    ndie msg('range-noopt-size') unless length $critical || length $warning;
+    my @subs;
+    for my $val ($warning, $critical) {
+        if ($val =~ /^(.+?)\s([&|]{2}|and|or)\s(.+)$/i) {
+            my ($l, $op, $r) = ($1, $2, $3);
+            local $opt{warning} = $l;
+            local $opt{critical} = 0;
+            ($l) = validate_range({ type => 'size or percent' });
+            $opt{warning} = $r;
+            ($r) = validate_range({ type => 'size or percent' });
+            if ($l =~ s/%$//) {
+                ($l, $r) = ($r, $l);
+            }
+            else {
+                $r =~ s/%$//;
+            }
+            push @subs, $op eq '&&' || lc $op eq 'and' ? sub {
+                $_[0] >= $l && $_[1] >= $r;
+            } : sub {
+                $_[0] >= $l || $_[1] >= $r;
+            };
+        }
+        else {
+            local $opt{warning} = $val;
+            local $opt{critical} = 0;
+            my ($v) = validate_range({ type => 'size or percent' });
+            push @subs, !length $v ? sub { 0 }
+                    : $v =~ s/%$// ? sub { $_[1] >= $v }
+                                   : sub { $_[0] >= $v };
+        }
+    }
+
+    return @subs;
+
+} ## end of validate_size_or_percent_with_oper
+
+
+sub validate_integer_for_time {
+
+    my $arg = shift || {};
+    ndie qq{validate_integer_for_time must be called with a hashref\n}
+        unless ref $arg eq 'HASH';
+
+    my $warning  = exists $opt{warning}  ? $opt{warning} :
+        exists $opt{critical} ? '' : $arg->{default_warning} || '';
+    my $critical = exists $opt{critical} ? $opt{critical} :
+        exists $opt{warning} ? '' : $arg->{default_critical} || '';
+    ndie msg('range-nointfortime', 'critical') unless length $critical or length $warning;
+
+    my @ret;
+    for my $spec ([ warning => $warning], [critical => $critical]) {
+        my ($level, $val) = @{ $spec };
+        if (length $val) {
+            if ($val =~ /^(.+?)\sfor\s(.+)$/i) {
+                my ($int, $time) = ($1, $2);
+
+                # Integer first, time second.
+                ($int, $time) = ($time, $int)
+                    if $int =~ /[a-zA-Z]$/ || $time =~ /^[-+]\d+$/;
+
+                # Determine the values.
+                $time = size_in_seconds($time, $level);
+                ndie msg('range-int', $level) if $time !~ /^[-+]?\d+$/;
+                push @ret, int $int, $time;
+            }
+            else {
+                # Disambiguate int from time int by sign.
+                if ($val =~ /^[-+]\d+$/) {
+                    ndie msg('range-int', $level) if $val !~ /^[-+]?\d+$/;
+                    push @ret, int $val, '';
+                }
+                else {
+                    # Assume time for backwards compatibility.
+                    push @ret, '', size_in_seconds($val, $level);
+                }
+            }
+        }
+        else {
+            push @ret, '', '';
+        }
+    }
+
+    return @ret;
+
+} ## end of validate_integer_for_time
+
+
+sub perfname {
+
+    ## Return a safe label name for Nagios performance data
+    my $name = shift;
+
+    my $escape = 0;
+
+    $name =~ s/'/''/g and $escape++;
+
+    if ($escape or index($name, ' ') >=0) {
+        $name = qq{'$name'};
+    }
+
+    return $name;
+
+} ## end of perfname;
+
+
+sub check_archive_ready {
+
+    ## Check on the number of WAL archive with status "ready"
+    ## Supports: Nagios, MRTG
+    ## Must run as a superuser
+    ## Critical and warning are the number of files
+    ## Example: --critical=10
+
+    return check_wal_files('.ready');
+
+} ## end of check_archive_ready
+
+
 sub check_autovac_freeze {
 
     ## Check how close all databases are to autovacuum_freeze_max_age
@@ -2529,11 +2703,11 @@ sub check_autovac_freeze {
             elsif ($r->{perc} == $maxp) {
                 $maxdb .= sprintf '%s%s', (length $maxdb ? ' | ' : ''), $r->{datname};
             }
-            $maxt = $r->{tnxs} if $r->{txns} > $maxt;
+            $maxt = $r->{txns} if $r->{txns} > $maxt;
             next SLURP;
         }
 
-        my $msg = "'$r->{datname}'=$r->{perc}\%;$w;$c";
+        my $msg = sprintf ' %s=%s%%;%s;%s', perfname($r->{datname}), $r->{perc}, $w, $c;
         $db->{perf} .= " $msg";
         if (length $critical and $r->{perc} >= $c) {
             push @crit => $msg;
@@ -2679,7 +2853,8 @@ ORDER BY datname
         elsif ($w3) {
             $nwarn = (int $w2*$limit/100)
         }
-        $db->{perf} .= " '$r->{datname}'=$r->{current};$nwarn;$ncrit;0;$limit";
+        $db->{perf} .= sprintf ' %s=%s;%s;%s;0;%s',
+            perfname($r->{datname}), $r->{current}, $nwarn, $ncrit, $limit;
 
         if (! skip_item($r->{datname})) {
             $total += $r->{current};
@@ -2687,9 +2862,7 @@ ORDER BY datname
     }
 
     if ($MRTG) {
-        $stats{$db->{dbname}} = $total;
-        $statsmsg{$db->{dbname}} = msg('backends-mrtg', $db->{dbname}, $limit);
-        return;
+        do_mrtg({one => $total, msg => msg('backends-mrtg', $db->{dbname}, $limit)});
     }
 
     if (!$total) {
@@ -2770,9 +2943,8 @@ sub check_bloat {
         $LIMIT = $opt{perflimit};
     }
 
-    my ($warning, $critical) = validate_range
+    my ($warning, $critical) = validate_size_or_percent_with_oper
         ({
-          type               => 'size or percent',
           default_warning    => '1 GB',
           default_critical   => '5 GB',
           });
@@ -2781,12 +2953,12 @@ sub check_bloat {
     $SQL = q{
 SELECT
   current_database() AS db, schemaname, tablename, reltuples::bigint AS tups, relpages::bigint AS pages, otta,
-  ROUND(CASE WHEN otta=0 THEN 0.0 ELSE sml.relpages/otta::numeric END,1) AS tbloat,
+  ROUND(CASE WHEN otta=0 OR sml.relpages=0 OR sml.relpages=otta THEN 0.0 ELSE sml.relpages/otta::numeric END,1) AS tbloat,
   CASE WHEN relpages < otta THEN 0 ELSE relpages::bigint - otta END AS wastedpages,
   CASE WHEN relpages < otta THEN 0 ELSE bs*(sml.relpages-otta)::bigint END AS wastedbytes,
   CASE WHEN relpages < otta THEN '0 bytes'::text ELSE (bs*(relpages-otta))::bigint || ' bytes' END AS wastedsize,
   iname, ituples::bigint AS itups, ipages::bigint AS ipages, iotta,
-  ROUND(CASE WHEN iotta=0 OR ipages=0 THEN 0.0 ELSE ipages/iotta::numeric END,1) AS ibloat,
+  ROUND(CASE WHEN iotta=0 OR ipages=0 OR ipages=iotta THEN 0.0 ELSE ipages/iotta::numeric END,1) AS ibloat,
   CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END AS wastedipages,
   CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta) END AS wastedibytes,
   CASE WHEN ipages < iotta THEN '0 bytes' ELSE (bs*(ipages-iotta))::bigint || ' bytes' END AS wastedisize
@@ -2815,8 +2987,9 @@ FROM (
       FROM pg_stats s, (
         SELECT
           BLOCK_SIZE,
-          CASE WHEN substring(v,12,3) IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr,
-          CASE WHEN v ~ 'mingw32' THEN 8 ELSE 4 END AS ma
+            CASE WHEN SUBSTRING(SPLIT_PART(v, ' ', 2) FROM '#"[0-9]+.[0-9]+#"%' for '#')
+              IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr,
+          CASE WHEN v ~ 'mingw32' OR v ~ '64-bit' THEN 8 ELSE 4 END AS ma
         FROM (SELECT version() AS v) AS foo
       ) AS constants
       GROUP BY 1,2,3,4,5
@@ -2851,126 +3024,119 @@ FROM (
     }
 
     my %seenit;
-    for $db (@{$info->{db}}) {
-        if ($db->{slurp}[0] !~ /\w+/o) {
-            add_ok msg('bloat-nomin') unless $MRTG;
-            return;
+
+    ## Store the perf data for sorting at the end
+    my %perf;
+
+    $db = $info->{db}[0];
+
+    if ($db->{slurp} !~ /\w+/o) {
+        add_ok msg('bloat-nomin') unless $MRTG;
+        return;
+    }
+    ## Not a 'regex' to run_command as we need to check the above first.
+    if ($db->{slurp} !~ /\d+/) {
+        add_unknown msg('invalid-query', $db->{slurp}) unless $MRTG;
+        return;
+    }
+
+    my $max = -1;
+    my $maxmsg = '?';
+
+    ## The perf must be added before the add_x, so we defer the settings:
+    my (@addwarn, @addcrit);
+
+    for my $r (@{ $db->{slurp} }) {
+
+        for my $v (values %$r) {
+            $v =~ s/(\d+) bytes/pretty_size($1,1)/ge;
         }
-        ## Not a 'regex' to run_command as we need to check the above first.
-        if ($db->{slurp}[0] !~ /\d+/) {
-            add_unknown msg('invalid-query', $db->{slurp}) unless $MRTG;
-            return;
-        }
 
-        my $max = -1;
-        my $maxmsg = '?';
+        my ($dbname,$schema,$table,$tups,$pages,$otta,$bloat,$wp,$wb,$ws) = @$r{
+            qw/ db schemaname tablename tups pages otta tbloat wastedpages wastedbytes wastedsize/};
 
-        for my $r (@{$db->{slurp}}) {
+        next if skip_item($table, $schema);
 
-            for my $v (values %$r) {
-                $v =~ s/(\d+) bytes/pretty_size($1,1)/ge;
+        my ($index,$irows,$ipages,$iotta,$ibloat,$iwp,$iwb,$iws) = @$r{
+            qw/ iname irows ipages iotta ibloat wastedipgaes wastedibytes wastedisize/};
+
+        ## Made it past the exclusions
+        $max = -2 if $max == -1;
+
+        ## Do the table first if we haven't seen it
+        if (! $seenit{"$dbname.$schema.$table"}++) {
+            my $nicename = perfname("$schema.$table");
+            $perf{$wb}{$nicename}++;
+            my $msg = msg('bloat-table', $dbname, $schema, $table, $tups, $pages, $otta, $bloat, $wb, $ws);
+            my $ok = 1;
+            my $perbloat = $bloat * 100;
+
+            if ($MRTG) {
+                $stats{table}{"DB=$dbname TABLE=$schema.$table"} = [$wb, $bloat];
+                next;
+            }
+            if ($critical->($wb, $perbloat)) {
+                push @addcrit => $msg;
+                $ok = 0;
             }
 
-            my ($dbname,$schema,$table,$tups,$pages,$otta,$bloat,$wp,$wb,$ws) = @$r{
-                qw/ db schemaname tablename tups pages otta tbloat wastedpages wastedbytes wastedsize/};
+            if ($ok and $warning->($wb, $perbloat)) {
+                push @addwarn => $msg;
+                $ok = 0;
+            }
+            ($max = $wb, $maxmsg = $msg) if $wb > $max and $ok;
+        }
 
-            next if skip_item($table, $schema);
+        ## Now the index, if it exists
+        if ($index ne '?') {
+            my $nicename = perfname($index);
+            $perf{$iwb}{$nicename}++;
+            my $msg = msg('bloat-index', $dbname, $index, $irows, $ipages, $iotta, $ibloat, $iwb, $iws);
+            my $ok = 1;
+            my $iperbloat = $ibloat * 100;
 
-            my ($index,$irows,$ipages,$iotta,$ibloat,$iwp,$iwb,$iws) = @$r{
-                    qw/ iname irows ipages iotta ibloat wastedipgaes wastedibytes wastedisize/};
-
-            ## Made it past the exclusions
-            $max = -2 if $max == -1;
-
-            ## Do the table first if we haven't seen it
-            if (! $seenit{"$dbname.$schema.$table"}++) {
-                $db->{perf} = " $schema.$table=$wb";
-                my $msg = msg('bloat-table', $dbname, $schema, $table, $tups, $pages, $otta, $bloat, $wb, $ws);
-                my $ok = 1;
-                my $perbloat = $bloat * 100;
-
-                if ($MRTG) {
-                    $stats{table}{"DB=$dbname TABLE=$schema.$table"} = [$wb, $bloat];
-                    next;
-                }
-                if (length $critical) {
-                    if (index($critical,'%')>=0) {
-                        (my $critical2 = $critical) =~ s/\%//;
-                        if ($perbloat >= $critical2) {
-                            add_critical $msg;
-                            $ok = 0;
-                        }
-                    }
-                    elsif ($wb >= $critical) {
-                        add_critical $msg;
-                        $ok = 0;
-                    }
-                }
-
-                if (length $warning and $ok) {
-                    if (index($warning,'%')>=0) {
-                        (my $warning2 = $warning) =~ s/\%//;
-                        if ($perbloat >= $warning2) {
-                            add_warning $msg;
-                            $ok = 0;
-                        }
-                    }
-                    elsif ($wb >= $warning) {
-                        add_warning $msg;
-                        $ok = 0;
-                    }
-                }
-                ($max = $wb, $maxmsg = $msg) if $wb > $max and $ok;
+            if ($MRTG) {
+                $stats{index}{"DB=$dbname INDEX=$index"} = [$iwb, $ibloat];
+                next;
+            }
+            if ($critical->($iwb, $iperbloat)) {
+                push @addcrit => $msg;
+                $ok = 0;
             }
 
-            ## Now the index, if it exists
-            if ($index ne '?') {
-                $db->{perf} = " $index=$iwb" if $iwb;
-                my $msg = msg('bloat-index', $dbname, $index, $irows, $ipages, $iotta, $ibloat, $iwb, $iws);
-                my $ok = 1;
-                my $iperbloat = $ibloat * 100;
-
-                if ($MRTG) {
-                    $stats{index}{"DB=$dbname INDEX=$index"} = [$iwb, $ibloat];
-                    next;
-                }
-                if (length $critical) {
-                    if (index($critical,'%')>=0) {
-                        (my $critical2 = $critical) =~ s/\%//;
-                        if ($iperbloat >= $critical2) {
-                            add_critical $msg;
-                            $ok = 0;
-                        }
-                    }
-                    elsif ($iwb >= $critical) {
-                        add_critical $msg;
-                        $ok = 0;
-                    }
-                }
-
-                if (length $warning and $ok) {
-                    if (index($warning,'%')>=0) {
-                        (my $warning2 = $warning) =~ s/\%//;
-                        if ($iperbloat >= $warning2) {
-                            add_warning $msg;
-                            $ok = 0;
-                        }
-                    }
-                    elsif ($iwb >= $warning) {
-                        add_warning $msg;
-                        $ok = 0;
-                    }
-                }
-
-                ($max = $iwb, $maxmsg = $msg) if $iwb > $max and $ok;
+            if ($ok and $warning->($iwb, $iperbloat)) {
+                push @addwarn => $msg;
+                $ok = 0;
             }
+            ($max = $iwb, $maxmsg = $msg) if $iwb > $max and $ok;
         }
-        if ($max == -1) {
-            add_unknown msg('no-match-rel');
+    }
+
+    ## Set a sorted limited perf
+    $db->{perf} = '';
+    my $count = 0;
+  PERF: for my $size (sort {$b <=> $a } keys %perf) {
+        for my $name (sort keys %{ $perf{$size} }) {
+            $db->{perf} .= "$name=${size}B ";
+            last PERF if $opt{perflimit} and ++$count >= $opt{perflimit};
         }
-        elsif ($max != -1) {
-            add_ok $maxmsg;
-        }
+    }
+
+    ## Now we can set the critical and warning
+    for (@addcrit) {
+        add_critical $_;
+        $db->{perf} = '';
+    }
+    for (@addwarn) {
+        add_warning $_;
+        $db->{perf} = '';
+    }
+
+    if ($max == -1) {
+        add_unknown msg('no-match-rel');
+    }
+    elsif ($max != -1) {
+        add_ok $maxmsg;
     }
 
     if ($MRTG) {
@@ -3000,6 +3166,16 @@ FROM (
 sub check_checkpoint {
 
     ## Checks how long in seconds since the last checkpoint on a WAL slave
+
+    ## Note that this value is actually the last checkpoint on the
+    ## *master* (as copied from the WAL checkpoint record), so it more
+    ## indicative that the master has been unable to complete a
+    ## checkpoint for some other reason (i.e., unable to write dirty
+    ## buffers or archive_command failure, etc).  As such, this check
+    ## may make more sense on the master, or we may want to look at
+    ## the WAL segments received/processed instead of the checkpoint
+    ## timestamp.
+
     ## Supports: Nagios, MRTG
     ## Warning and critical are seconds
     ## Requires $ENV{PGDATA} or --datadir
@@ -3043,7 +3219,7 @@ sub check_checkpoint {
     }
 
     if ($res =~ /WARNING: Calculated CRC checksum/) {
-        ndie msg('checkpoint-badver');
+        ndie msg('checkpoint-badver', $pgc);
     }
     if ($res !~ /^pg_control.+\d+/) {
         ndie msg('checkpoint-badver2');
@@ -3071,8 +3247,10 @@ sub check_checkpoint {
     if ($dt !~ /^\d+$/) {
         ndie msg('checkpoint-noparse', $last);
     }
-    my $diff = $db->{perf} = time - $dt;
+    my $diff = time - $dt;
     my $msg = $diff==1 ? msg('checkpoint-ok') : msg('checkpoint-ok2', $diff);
+    $db->{perf} = sprintf '%s=%s;%s;%s',
+        perfname(msg('age')), $diff, $warning, $critical;
 
     if ($MRTG) {
         do_mrtg({one => $diff, msg => $msg});
@@ -3157,35 +3335,49 @@ sub check_custom_query {
 
         my $goodrow = 0;
 
+        ## The other column tells is the name to use as the perfdata value
+        my $perfname;
+
         for my $r (@{$db->{slurp}}) {
-            my ($data,$msg) = ($r->{result}, $r->{data}||'');
+            my $result = $r->{result};
+            if (! defined $perfname) {
+                $perfname = '';
+                for my $name (keys %$r) {
+                    next if $name eq 'result';
+                    $perfname = $name;
+                    last;
+                }
+            }
             $goodrow++;
-            $db->{perf} .= " $msg";
+            if ($perfname) {
+                $db->{perf} .= sprintf ' %s=%s;%s;%s',
+                    perfname($perfname), $r->{$perfname}, $warning, $critical;
+            }
             my $gotmatch = 0;
-            if (! defined $data) {
+            if (! defined $result) {
                 add_unknown msg('custom-invalid');
                 return;
             }
             if (length $critical) {
-                if (($valtype eq 'string' and $data eq $critical)
+                if (($valtype eq 'string' and $result eq $critical)
                     or
-                    ($reverse ? $data <= $critical : $data >= $critical)) { ## covers integer, time, size
-                    add_critical "$data";
+                    ($valtype ne 'string' and $reverse ? $result <= $critical : $result >= $critical)) { ## covers integer, time, size
+                    add_critical "$result";
                     $gotmatch = 1;
                 }
             }
 
             if (length $warning and ! $gotmatch) {
-                if (($valtype eq 'string' and $data eq $warning)
+                if (($valtype eq 'string' and $result eq $warning)
                     or
-                    (length $data and $reverse ? $data <= $warning : $data >= $warning)) {
-                    add_warning "$data";
+                    ($valtype ne 'string' and length $result and $reverse ? $result <= $warning : $result >= $warning)) {
+                    add_warning "$result";
                     $gotmatch = 1;
                 }
             }
 
             if (! $gotmatch) {
-                add_ok "$data";
+                add_ok "$result";
             }
 
         } ## end each row returned
@@ -3248,8 +3440,7 @@ JOIN pg_user u ON (u.usesysid=d.datdba)$USERWHERECLAUSE
         }
 
         if ($MRTG) {
-            $stats{$db->{dbname}} = $max;
-            next;
+            do_mrtg({one => $max, msg => "DB: $db->{dbname}"});
         }
         if ($max < 0) {
             $stats{$db->{dbname}} = 0;
@@ -3265,7 +3456,8 @@ JOIN pg_user u ON (u.usesysid=d.datdba)$USERWHERECLAUSE
         my $msg = '';
         for (sort {$s{$b}[0] <=> $s{$a}[0] or $a cmp $b } keys %s) {
             $msg .= "$_: $s{$_}[0] ($s{$_}[1]) ";
-            $db->{perf} .= " $_=$s{$_}[0]";
+            $db->{perf} .= sprintf ' %s=%s;%s;%s',
+                perfname($_), $s{$_}[0], $warning, $critical;
         }
         if (length $critical and $max >= $critical) {
             add_critical $msg;
@@ -3430,9 +3622,8 @@ sub check_disk_space {
     ## NOTE: Needs to run on the same system (for now)
     ## XXX Allow custom ssh commands for remote df and the like
 
-    my ($warning, $critical) = validate_range
+    my ($warning, $critical) = validate_size_or_percent_with_oper
         ({
-          type             => 'size or percent',
           default_warning  => '90%',
           default_critical => '95%',
           });
@@ -3536,35 +3727,20 @@ WHERE spclocation <> ''
 
             my $msg = msg('diskspace-msg', $fs, $mount, $prettyused, $prettytotal, $percent);
 
-            $db->{perf} = "$fs=$used";
+            $db->{perf} = sprintf '%s=%sB',
+                perfname(msg('size')), $used;
 
             my $ok = 1;
-            if (length $critical) {
-                if (index($critical,'%')>=0) {
-                    (my $critical2 = $critical) =~ s/\%//;
-                    if ($percent >= $critical2) {
-                        add_critical $msg;
-                        $ok = 0;
-                    }
-                }
-                elsif ($used >= $critical) {
-                    add_critical $msg;
-                    $ok = 0;
-                }
+            if ($critical->($used, $percent)) {
+                add_critical $msg;
+                $ok = 0;
             }
-            if (length $warning and $ok) {
-                if (index($warning,'%')>=0) {
-                    (my $warning2 = $warning) =~ s/\%//;
-                    if ($percent >= $warning2) {
-                        add_warning $msg;
-                        $ok = 0;
-                    }
-                }
-                elsif ($used >= $warning) {
-                    add_warning $msg;
-                    $ok = 0;
-                }
+
+            if ($ok and $warning->($used, $percent)) {
+                add_warning $msg;
+                $ok = 0;
             }
+
             if ($ok) {
                 add_ok $msg;
             }
@@ -3739,7 +3915,7 @@ sub check_hot_standby_delay {
     my ($master, $slave);
     $SQL = q{SELECT pg_is_in_recovery() AS recovery;};
 
-    # Check if master is online (eg really a master)
+    # Check if master is online (e.g. really a master)
     for my $x (1..2) {
         my $info = run_command($SQL, { dbnumber => $x, regex => qr(t|f) });
 
@@ -3814,8 +3990,10 @@ sub check_hot_standby_delay {
 
     $MRTG and do_mrtg({one => $rep_delta, two => $rec_delta});
 
-    $db->{perf} = qq{replay_delay=$rep_delta;$warning;$critical};
-    $db->{perf} .= qq{ receive_delay=$rec_delta;$warning;$critical};
+    $db->{perf} = sprintf '%s=%s;%s;%s',
+        perfname(msg('hs-replay-delay')), $rep_delta, $warning, $critical;
+    $db->{perf} .= sprintf '%s=%s;%s;%s',
+        perfname(msg('hs-receive-delay')), $rec_delta, $warning, $critical;
 
     ## Do the check on replay delay in case SR has disconnected because it way too far behind
     my $msg = qq{$rep_delta};
@@ -3831,7 +4009,7 @@ sub check_hot_standby_delay {
 
     return;
 
-} ## End of check_hot_standby_delay
+} ## end of check_hot_standby_delay
 
 
 sub check_last_analyze {
@@ -3914,35 +4092,42 @@ FROM (SELECT nspname, relname, $criteria AS v
         my ($minrel,$maxrel) = ('?','?'); ## no critic
         my $mintime = 0; ## used for MRTG only
         my $count = 0;
+        my $found = 0;
       ROW: for my $r (@{$db->{slurp}}) {
             my ($dbname,$schema,$name,$time,$ptime) = @$r{qw/ datname sname tname ltime ptime/};
-            $maxtime = -3 if $maxtime == -1;
             if (skip_item($name, $schema)) {
                 $maxtime = -2 if $maxtime < 1;
                 next ROW;
             }
-            $db->{perf} .= " $dbname.$schema.$name=${time}s;$warning;$critical" if $time >= 0;
+            $found++;
+            if ($time >= 0) {
+                $db->{perf} .= sprintf ' %s=%ss;%s;%s',
+                    perfname("$dbname.$schema.$name"),$time, $warning, $critical;
+            }
             if ($time > $maxtime) {
                 $maxtime = $time;
-                $maxrel = "$schema.$name";
+                $maxrel = "DB: $dbname TABLE: $schema.$name";
                 $maxptime = $ptime;
             }
             if ($time > 0 and ($time < $mintime or !$mintime)) {
                 $mintime = $time;
-                $minrel = "$schema.$name";
+                $minrel = "DB: $dbname TABLE: $schema.$name";
             }
             if ($opt{perflimit}) {
                 last if ++$count >= $opt{perflimit};
             }
         }
         if ($MRTG) {
-            $stats{$db->{dbname}} = $mintime;
-            $statsmsg{$db->{dbname}} = msg('vac-msg', $db->{dbname}, $minrel);
+            $maxrel eq '?' and $maxrel = "DB: $db->{dbname} TABLE: ?";
+            do_mrtg({one => $mintime, msg => $maxrel});
             return;
         }
-
         if ($maxtime == -2) {
-            add_unknown msg('no-match-table');
+            add_unknown (
+                $found ? $type eq 'vacuum' ? msg('vac-nomatch-v')
+                : msg('vac-nomatch-a')
+                : msg('no-match-table')
+            );
         }
         elsif ($maxtime < 0) {
             add_unknown $type eq 'vacuum' ? msg('vac-nomatch-v') : msg('vac-nomatch-a');
@@ -3995,7 +4180,8 @@ sub check_listener {
         if ($MRTG) {
             do_mrtg({one => $count});
         }
-        $db->{perf} .= msg('listener-count', $count);
+        $db->{perf} .= sprintf '%s=%s',
+            perfname(msg('listening')), $count;
         my $msg = msg('listener-msg', $count);
         if ($count >= 1) {
             add_ok $msg;
@@ -4071,8 +4257,7 @@ sub check_locks {
         }
 
         if ($MRTG) {
-            $stats{$db->{dbname}} = $totallock{total};
-            next;
+            do_mrtg( {one => $totallock{total}, msg => "DB: $db->{dbname}" } );
         }
 
         # Nagios perfdata output
@@ -4080,13 +4265,13 @@ sub check_locks {
             for my $type (sort keys %{ $dblock{$dbname} }) {
                 next if ((! $critical or ! exists $critical->{$type})
                              and (!$warning or ! exists $warning->{$type}));
-                $db->{perf} .= " '$dbname.$type'=$dblock{$dbname}{$type};";
+                $db->{perf} .= sprintf ' %s=%s;',
+                    perfname("$dbname.$type"), $dblock{$dbname}{$type};
                 if ($warning and exists $warning->{$type}) {
                     $db->{perf} .= $warning->{$type};
                 }
-                $db->{perf} .= ';';
                 if ($critical and $critical->{$type}) {
-                    $db->{perf} .= $critical->{$type};
+                    $db->{perf} .= ";$critical->{$type}";
                 }
             }
         }
@@ -4215,7 +4400,7 @@ ORDER BY name
         $logfile =~ s/%d/$d/g;
         $logfile =~ s/%H/$H/g;
 
-        $VERBOSE >= 3 and warn msg('logfile-debug2', $logfile);
+        $VERBOSE >= 3 and warn msg('logfile-debug', $logfile);
 
         if (! -e $logfile) {
             my $msg = msg('logfile-dne', $logfile);
@@ -4291,6 +4476,7 @@ sub find_new_version {
     ## The format is X.Y.Z [optional message]
     my $versionre = qr{((\d+)\.(\d+)\.(\d+))\s*(.*)};
     my ($cversion,$cmajor,$cminor,$crevision,$cmessage) = ('','','','','');
+    my $found = 0;
 
     ## Try to fetch the current version from the web
     for my $meth (@get_methods) {
@@ -4302,10 +4488,12 @@ sub find_new_version {
             if ($program eq 'Postgres') {
                 $cmajor = {};
                 while ($info =~ /<title>(\d+)\.(\d+)\.(\d+)/g) {
+                    $found = 1;
                     $cmajor->{"$1.$2"} = $3;
                 }
             }
             elsif ($info =~ $versionre) {
+                $found = 1;
                 ($cversion,$cmajor,$cminor,$crevision,$cmessage) = ($1, int $2, int $3, int $4, $5);
                 if ($VERBOSE >= 1) {
                     $info =~ s/\s+$//s;
@@ -4314,10 +4502,10 @@ sub find_new_version {
                 }
             }
         };
-        last if $cmajor;
+        last if $found;
     }
 
-    if (! $cmajor) {
+    if (! $found) {
         add_unknown msg('new-ver-nocver', $program);
         return;
     }
@@ -4400,6 +4588,18 @@ sub check_new_version_bc {
     return;
 
 } ## end of check_new_version_bc
+
+
+sub check_new_version_box {
+
+    ## Check if a newer version of boxinfo is available
+
+    my $url = 'http://bucardo.org/boxinfo/latest_version.txt';
+    find_new_version('boxinfo', 'boxinfo.pl', $url);
+
+    return;
+
+} ## end of check_new_version_box
 
 
 sub check_new_version_cp {
@@ -4547,6 +4747,8 @@ sub check_pgb_pool {
         }
     }
 
+    return;
+
 } ## end of check_pgb_pool
 
 
@@ -4593,7 +4795,8 @@ ORDER BY prepared ASC
             }
 
             $msg = "$dbname=$date ($age)";
-            $db->{perf} .= " $msg";
+            $db->{perf} .= sprintf ' %s=%ss;%s;%s',
+                perfname($dbname), $age, $warning, $critical;
             if (length $critical and $age >= $critical) {
                 push @crit => $msg;
             }
@@ -4670,7 +4873,8 @@ sub check_query_runtime {
             $stats{$db->{dbname}} = $totalseconds;
             next;
         }
-        $db->{perf} = " qtime=$totalseconds";
+        $db->{perf} = sprintf '%s=%ss;%s;%s',
+            perfname(msg('query-time')), $totalseconds, $warning, $critical;
         my $msg = msg('runtime-msg', $totalseconds);
         if (length $critical and $totalseconds >= $critical) {
             add_critical $msg;
@@ -4826,7 +5030,6 @@ ORDER BY query_start, procpid DESC
         }
     }
 
-
 } ## end of check_query_time
 
 
@@ -4884,9 +5087,11 @@ FROM pg_class c, pg_namespace n WHERE (relkind = %s) AND n.oid = c.relnamespace
 
             next ROW if skip_item($name, $schema);
 
-            $db->{perf} .= sprintf "%s%s$name=$size",
+            my $nicename = $kind eq 'r' ? "$schema.$name" : $name;
+
+            $db->{perf} .= sprintf "%s%s=%sB;%s;%s",
                 $VERBOSE==1 ? "\n" : ' ',
-                $kind eq 'r' ? "$schema." : '';
+                perfname($nicename), $size, $warning, $critical;
             ($max=$size, $pmax=$psize, $kmax=$kind, $nmax=$name, $smax=$schema) if $size > $max;
         }
         if ($max < 0) {
@@ -4894,9 +5099,12 @@ FROM pg_class c, pg_namespace n WHERE (relkind = %s) AND n.oid = c.relnamespace
             next;
         }
         if ($MRTG) {
-            $stats{$db->{dbname}} = $max;
-            $statsmsg{$db->{dbname}} = sprintf "DB: $db->{dbname} %s %s$nmax",
-                $kmax eq 'i' ? 'INDEX:' : 'TABLE:', $kmax eq 'i' ? '' : "$smax.";
+            my $msg = sprintf 'DB: %s %s %s%s',
+                $db->{dbname},
+                $kmax eq 'i' ? 'INDEX:' : 'TABLE:',
+                $kmax eq 'i' ? '' : "$smax.",
+                $nmax;
+            do_mrtg({one => $max, msg => $msg});
             next;
         }
 
@@ -5220,7 +5428,9 @@ JOIN pg_class c ON (c.oid = tgrelid)
 JOIN pg_proc p ON (p.oid = tgfoid)
 WHERE NOT tgisconstraint
 }; ## constraints checked separately
-            $info = run_command($SQL, { dbuser => $opt{dbuser}[$x-1], dbnumber => $x } );
+            (my $SQL2 = $SQL) =~ s/NOT tgisconstraint/tgconstraint = 0/;
+
+            $info = run_command($SQL, { dbuser => $opt{dbuser}[$x-1], dbnumber => $x, version  => [ ">8.4 $SQL2" ] } );
             for $db (@{$info->{db}}) {
                 for my $r (@{$db->{slurp}}) {
                     my ($name,$table,$func,$args) = @$r{qw/ tgname relname proname proargtypes /};
@@ -5808,7 +6018,6 @@ JOIN pg_namespace n ON (n.oid = pronamespace)
         ## Parse the statement to get columns, index type, expression, and predicate
         if ($one->{statement} !~ /\ACREATE (\w* ?INDEX .+? ON .+? USING (\w+) (.+))/) {
             die "Could not parse index statement: $one->{statement}\n";
-            next;
         }
         my ($def1, $method1,$col1) = ($1,$2,$3);
         my $where1 = $col1 =~ s/WHERE (.+)// ? $1 : '';
@@ -5817,7 +6026,6 @@ JOIN pg_namespace n ON (n.oid = pronamespace)
 
         if ($two->{statement} !~ /\ACREATE (\w* ?INDEX .+? ON .+? USING (\w+) (.+))/) {
             die "Could not parse index statement: $two->{statement}\n";
-            next;
         }
         my ($def2,$method2,$col2) = ($1,$2,$3);
         my $where2 = $col2 =~ s/WHERE (.+)// ? $1 : '';
@@ -6663,7 +6871,8 @@ FROM $seqname) foo
                 ndie msg('seq-die', $seqname);
             }
             my $msg = msg('seq-msg', $seqname, $percent, $left);
-            $seqperf{$percent}{$seqname} = [$left, " $multidb$seqname=$percent|$slots|$used|$left"];
+            my $nicename = perfname("$multidb$seqname");
+            $seqperf{$percent}{$seqname} = [$left, " $nicename=$percent%;$w%;$c%"];
             if ($percent >= $maxp) {
                 $maxp = $percent;
                 if (! exists $opt{perflimit} or $limit++ < $opt{perflimit}) {
@@ -6855,6 +7064,7 @@ JOIN $schema.sl_node n2 ON (n2.no_id=st_received)};
 
 } ## end of check_slony_status
 
+
 sub check_timesync {
 
     ## Compare local time to the database time
@@ -6878,10 +7088,11 @@ sub check_timesync {
 
         my $diff = abs($pgepoch - $localepoch);
         if ($MRTG) {
-            $stats{$db->{dbname}} = $diff;
-            next;
+            do_mrtg({one => $diff, msg => "DB: $db->{dbname}"});
         }
-        $db->{perf} = msg('timesync-diff', $diff);
+        $db->{perf} = sprintf '%s=%ss;%s;%s',
+            perfname(msg('timesync-diff')), $diff, $warning, $critical;
+
         my $localpretty = sprintf '%d-%02d-%02d %02d:%02d:%02d', $l[5]+1900, $l[4]+1, $l[3],$l[2],$l[1],$l[0];
         my $msg = msg('timesync-msg', $diff, $pgpretty, $localpretty);
 
@@ -6902,65 +7113,166 @@ sub check_timesync {
 
 sub check_txn_idle {
 
-    ## Check the length of "idle in transaction" connections
+    ## Check the duration and optionally number of "idle in transaction" processes
     ## Supports: Nagios, MRTG
     ## It makes no sense to run this more than once on the same cluster
-    ## Warning and critical are time limits - defaults to seconds
-    ## Valid units: s[econd], m[inute], h[our], d[ay]
+    ## Warning and critical are time limits or counts for time limits - default to seconds
+    ## Valid time units: s[econd], m[inute], h[our], d[ay]
     ## All above may be written as plural as well (e.g. "2 hours")
+    ## Valid counts for time limits: "$int for $time"
     ## Can also ignore databases with exclude and limit with include
     ## Limit to a specific user with the includeuser option
     ## Exclude users with the excludeuser option
 
-    my ($warning, $critical) = validate_range
-        ({
-        type => 'time',
-        });
+    my $type = shift || 'txnidle';
+    my $thing = shift || msg('transactions');
+    my $perf  = shift || msg('txn-time');
+    my $start = shift || 'query_start';
+    my $clause = shift || q{current_query = '<IDLE> in transaction'};
 
+    ## Extract the warning and critical seconds and counts.
+    ## If not given, items will be an empty string
+    my ($wcount, $wtime, $ccount, $ctime) = validate_integer_for_time();
 
-    $SQL = q{SELECT datname, max(COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0)) AS maxx }.
-        qq{FROM pg_stat_activity WHERE current_query = '<IDLE> in transaction'$USERWHERECLAUSE GROUP BY 1};
+    ## We don't GROUP BY because we want details on every connection
+    ## Someday we may even break things down by database
+    $SQL = q{SELECT datname, datid, procpid, usename, client_addr, xact_start, current_query, }.
+        q{CASE WHEN client_port < 0 THEN 0 ELSE client_port END AS client_port, }.
+        qq{COALESCE(ROUND(EXTRACT(epoch FROM now()-$start)),0) AS seconds }.
+        qq{FROM pg_stat_activity WHERE $clause$USERWHERECLAUSE }.
+        qq{ORDER BY xact_start, query_start, procpid DESC};
 
     my $info = run_command($SQL, { emptyok => 1 } );
 
-    my $found = 0;
-    for $db (@{$info->{db}}) {
-        my $max = -1;
-        for my $r (@{$db->{slurp}}) {
-            $found++;
-            my ($dbname,$current) = ($r->{datname}, int $r->{maxx});
-            next if skip_item($dbname);
-            $max = $current if $current > $max;
-        }
-        if ($MRTG) {
-            $stats{$db->{dbname}} = $max < 0 ? 0 : $max;
-            next;
-        }
-        $db->{perf} .= msg('maxtime', $max);
-        if ($max < 0) {
-            add_ok msg('txnidle-none');
-            next;
+    ## Extract the first entry
+    $db = $info->{db}[0];
+
+    ## Store the current longest row
+    my $maxr = { seconds => 0 };
+
+    ## How many valid rows did we get?
+    my $count = 0;
+
+    ## Info about the top offender
+    my $whodunit = "DB: $db->{dbname}";
+
+    ## Process each returned row
+    for my $r (@{ $db->{slurp} }) {
+
+        ## Skip if we don't care about this database
+        next if skip_item($r->{datname});
+
+        ## Detect cases where pg_stat_activity is not fully populated
+        if (length $r->{xact_start} and $r->{xact_start} !~ /\d/o) {
+            ## Perhaps this is a non-superuser?
+            if ($r->{current_query} =~ /insufficient/) {
+                add_unknown msg('psa-nosuper');
+                return;
+            }
+
+            ## Perhaps stats_command_string / track_activities is off?
+            if ($r->{current_query} =~ /disabled/) {
+                add_unknown msg('psa-disabled');
+                return;
+            }
+
+            ## Something else is going on
+            add_unknown msg('psa-noexact');
+            return;
         }
 
-        my $msg = msg('txnidle-msg', $max);
-        if (length $critical and $max >= $critical) {
-            add_critical $msg;
+        ## Keep track of the longest overall time
+        $maxr = $r if $r->{seconds} >= $maxr->{seconds};
+
+        $count++;
+    }
+
+    ## If there were no matches, then there were no rows, or no non-excluded rows
+    ## We don't care which at the moment, and return the same message
+    if (! $count) {
+        $MRTG and do_mrtg({one => 0, msg => $whodunit});
+        $db->{perf} = "$perf=0;$wtime;$ctime";
+
+        add_ok msg("$type-none");
+        return;
+    }
+
+    ## Extract the seconds to avoid typing out the hash each time
+    my $max = $maxr->{seconds};
+
+    ## See if we have a minimum number of matches
+    my $base_count = $wcount || $ccount;
+    if ($base_count and $count < $base_count) {
+        $db->{perf} = "$perf=$count;$wcount;$ccount";
+        add_ok msg("$type-count-none", $base_count);
+        return;
+    }
+
+    ## Details on who the top offender was
+    if ($max > 0) {
+        $whodunit = sprintf q{%s:%s %s:%s %s:%s%s%s},
+            msg('PID'), $maxr->{procpid},
+            msg('database'), $maxr->{datname},
+            msg('username'), $maxr->{usename},
+            $maxr->{client_addr} eq '' ? '' : (sprintf ' %s:%s', msg('address'), $maxr->{client_addr}),
+            $maxr->{client_port} < 1 ? '' : (sprintf ' %s:%s', msg('port'), $maxr->{client_port});
+    }
+
+    ## For MRTG, we can simply exit right now
+    if ($MRTG) {
+        do_mrtg({one => $max, msg => $whodunit});
+        exit;
+    }
+
+    ## If the number of seconds is high, show an alternate form
+    my $ptime = $max > 300 ? ' (' . pretty_time($max) . ')' : '';
+
+    ## Show the maximum number of seconds in the perf section
+    $db->{perf} .= sprintf q{%s=%ss;%s;%s},
+        $perf,
+        $max,
+        $wtime,
+        $ctime;
+
+    if (length $ctime and length $ccount) {
+        if ($max >= $ctime and $count >= $ccount) {
+            add_critical msg("$type-for-msg", $count, $ctime, $max, $ptime, $whodunit);
+            return;
         }
-        elsif (length $warning and $max >= $warning) {
-            add_warning $msg;
+    }
+    elsif (length $ctime) {
+        if ($max >= $ctime) {
+            add_critical msg("$type-msg", $max, $ptime, $whodunit);
+            return;
         }
-        else {
-            add_ok $msg;
+    }
+    elsif (length $ccount) {
+        if ($count >= $ccount) {
+            add_critical msg("$type-count-msg", $count);
+            return;
         }
     }
 
-    ## If no results, let's be paranoid and check their settings
-    if (!$found) {
-        if ($USERWHERECLAUSE) {
-            add_ok msg('no-match-user');
+    if (length $wtime and length $wcount) {
+        if ($max >= $wtime and $count >= $wcount) {
+            add_warning msg("$type-for-msg", $count, $wtime, $max, $ptime, $whodunit);
+            return;
         }
-        verify_version();
     }
+    elsif (length $wtime) {
+        if ($max >= $wtime) {
+            add_warning msg("$type-msg", $max, $ptime, $whodunit);
+            return;
+        }
+    }
+    elsif (length $wcount) {
+        if ($count >= $wcount) {
+            add_warning msg("$type-count-msg", $count);
+            return;
+        }
+    }
+
+    add_ok msg("$type-msg", $max, $ptime, $whodunit);
 
     return;
 
@@ -6969,107 +7281,14 @@ sub check_txn_idle {
 
 sub check_txn_time {
 
-    ## Check the length of running transactions
-    ## Supports: Nagios, MRTG
-    ## It makes no sense to run this more than once on the same cluster
-    ## Warning and critical are time limits - defaults to seconds
-    ## Valid units: s[econd], m[inute], h[our], d[ay]
-    ## All above may be written as plural as well (e.g. "2 hours")
-    ## Can also ignore databases with exclude and limit with include
-    ## Limit to a specific user with the includeuser option
-    ## Exclude users with the excludeuser option
+    ## This is the same as check_txn_idle, but we want where the time is not null
+    ## as well as excluding any idle in transactions
 
-    my ($warning, $critical) = validate_range
-        ({
-        type => 'time',
-        });
-
-    $SQL = qq{
-SELECT
- client_addr,
- client_port,
- procpid,
- ROUND(EXTRACT(epoch FROM now()-xact_start)) AS maxtime,
- datname,
- usename
-FROM pg_stat_activity
-WHERE xact_start IS NOT NULL $USERWHERECLAUSE
-};
-
-	my $info = run_command($SQL, { regex => qr{\| \d+\n}, emptyok => 1 } );
-
-    $db = $info->{db}[0];
-    my $slurp = $db->{slurp};
-
-    if (! exists $db->{ok}) {
-        ndie msg('txntime-fail');
-    }
-
-    if ($slurp !~ /\w/ and $USERWHERECLAUSE) {
-        $stats{$db->{dbname}} = 0;
-        add_ok msg('no-match-user');
-        return;
-    }
-
-    ## Default values for information gathered
-    my ($client_addr, $client_port, $procpid, $username, $maxtime, $maxdb) = ('0.0.0.0', 0, '?', 0, 0, '?');
-
-    ## Read in and parse the psql output
-    for my $r (@{$db->{slurp}}) {
-        my ($add,$port,$pid,$time,$dbname,$user) = @$r{qw/ client_addr client_port procpid maxtime datname usename /};
-        next if skip_item($dbname);
-
-        if ($time >= $maxtime) {
-            $maxtime     = $time;
-            $maxdb       = $dbname;
-            $client_addr = $add;
-            $client_port = $port;
-            $procpid     = $pid;
-            $username    = $user;
-        }
-    }
-
-    ## Use of skip_item means we may have no matches
-    if ($maxdb eq '?') {
-        if ($USERWHERECLAUSE) { ## needed?
-            add_unknown msg('txntime-none');
-        }
-        else {
-            add_ok msg('txntime-none');
-        }
-        return;
-    }
-
-    ## Details on who the offender was
-    my $whodunit = sprintf q{%s:%s %s:%s%s%s %s:%s},
-        msg('database'),
-        $maxdb,
-        msg('PID'),
-        $procpid,
-        $client_port < 1 ? '' : (sprintf ' %s:%s', msg('port'), $client_port),
-        $client_addr eq '' ? '' : (sprintf ' %s:%s', msg('address'), $client_addr),
-        msg('username'),
-        $username;
-
-    $MRTG and do_mrtg({one => $maxtime, msg => $whodunit});
-
-    $db->{perf} .= sprintf q{'%s'=%s;%s;%s},
-        $whodunit,
-        $maxtime,
-        $warning,
-        $critical;
-
-    my $msg = sprintf '%s (%s)', msg('qtime-msg', $maxtime), $whodunit;
-
-    if (length $critical and $maxtime >= $critical) {
-        add_critical $msg;
-    }
-    elsif (length $warning and $maxtime >= $warning) {
-        add_warning $msg;
-    }
-    else {
-        add_ok $msg;
-    }
+    check_txn_idle('txntime',
+                   '',
+                   '',
+                   'xact_start',
+                   q{xact_start IS NOT NULL});
 
     return;
 
@@ -7107,11 +7326,8 @@ sub check_txn_wraparound {
         my ($max,$msg) = (0,'?');
         for my $r (@{$db->{slurp}}) {
             my ($dbname,$dbtxns) = ($r->{datname},$r->{age});
-            $db->{perf} .= " '$dbname'=$dbtxns;";
-            $db->{perf} .= $warning if length $warning;
-            $db->{perf} .= ';';
-            $db->{perf} .= $critical if length $critical;
-            $db->{perf} .= ';0;2000000000';
+            $db->{perf} .= sprintf ' %s=%s;%s;%s;%s;%s',
+                perfname($dbname), $dbtxns, $warning, $critical, 0, 2000000000;
             next SLURP if skip_item($dbname);
             if ($dbtxns > $max) {
                 $max = $dbtxns;
@@ -7204,16 +7420,18 @@ sub check_version {
 
 sub check_wal_files {
 
-    ## Check on the number of WAL files in use
+    ## Check on the number of WAL, or WAL "ready", files in use
     ## Supports: Nagios, MRTG
     ## Must run as a superuser
     ## Critical and warning are the number of files
     ## Example: --critical=40
 
-    my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
+    my $extrabit = shift || '';
+
+    my ($warning, $critical) = validate_range({type => 'positive integer', leastone => 1});
 
     ## Figure out where the pg_xlog directory is
-    $SQL = q{SELECT count(*) AS count FROM pg_ls_dir('pg_xlog') WHERE pg_ls_dir ~ E'^[0-9A-F]{24}$'}; ## no critic (RequireInterpolationOfMetachars)
+    $SQL = q{SELECT count(*) AS count FROM pg_ls_dir('pg_xlog') WHERE pg_ls_dir ~ E'^[0-9A-F]{24}$extrabit$'}; ## no critic (RequireInterpolationOfMetachars)
 
     my $info = run_command($SQL, {regex => qr[\d] });
 
@@ -7222,12 +7440,11 @@ sub check_wal_files {
         my $r = $db->{slurp}[0];
         my $numfiles = $r->{count};
         if ($MRTG) {
-            $stats{$db->{dbname}} = $numfiles;
-            $statsmsg{$db->{dbname}} = '';
-            next;
+            do_mrtg({one => $numfiles});
         }
         my $msg = qq{$numfiles};
-        $db->{perf} .= " '$db->{host}'=$numfiles;$warning;$critical";
+        $db->{perf} .= sprintf '%s=%s;%s;%s',
+            perfname(msg('files')), $numfiles, $warning, $critical;
         if (length $critical and $numfiles > $critical) {
             add_critical $msg;
         }
@@ -7244,146 +7461,6 @@ sub check_wal_files {
 } ## end of check_wal_files
 
 
-sub check_archive_ready {
-
-    ## Check on the number of WAL archive with status "ready"
-    ## Supports: Nagios, MRTG
-    ## Must run as a superuser
-    ## Critical and warning are the number of files
-    ## Example: --critical=10
-
-    my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
-
-    $SQL = q{SELECT count(*) FROM pg_ls_dir('pg_xlog/archive_status') WHERE pg_ls_dir ~ E'^[0-9A-F]{24}.ready$';};
-
-    my $info = run_command($SQL, {regex => qr[\d] });
-
-    my $found = 0;
-    for $db (@{$info->{db}}) {
-        my $r = $db->{slurp}[0];
-        my $numfiles = $r->{count};
-        if ($MRTG) {
-            $stats{$db->{dbname}} = $numfiles;
-            $statsmsg{$db->{dbname}} = '';
-            next;
-        }
-        my $msg = qq{$numfiles};
-        $db->{perf} .= " '$db->{host}'=$numfiles;$warning;$critical";
-        if (length $critical and $numfiles > $critical) {
-            add_critical $msg;
-        }
-        elsif (length $warning and $numfiles > $warning) {
-            add_warning $msg;
-        }
-        else {
-            add_ok $msg;
-        }
-    }
-
-    return;
-
-} ## end of check_archive_ready
-
-sub check_hot_standby_delay {
-
-    ## Check on the delay in replication between master and slave
-    ## Supports: Nagios
-    ## Critical and warning are the delay between master and slave xlog locations
-    ## Example: --critical=1024
-
-    my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
-
-    # check if master and slave comply with the check using pg_is_in_recovery()
-    my ($master, $slave);
-    $SQL = q{SELECT pg_is_in_recovery() AS recovery;};
-
-    # Check if master is online (eg really a master)
-    for my $x (1..2) {
-        my $info = run_command($SQL, { dbnumber => $x, regex => qr(t|f) });
-
-        for $db (@{$info->{db}}) {
-            my $status = $db->{slurp}[0];
-            if ($status->{recovery} eq 't') {
-                $slave = $x;
-                last;
-            } elsif ($status->{recovery} eq 'f') {
-                $master = $x;
-                last;
-            }
-        }
-    }
-    if (! defined $slave and ! defined $master) {
-        add_unknown msg('hs-not-master-slave');
-        return;
-    }
-
-    ## Get xlog positions
-    my ($moffset, $s_rec_offset, $s_rep_offset);
-    ## On master
-    $SQL = q{SELECT pg_current_xlog_location() AS location;};
-    my $info = run_command($SQL, { dbnumber => $master });
-    my $saved_db;
-    for $db (@{$info->{db}}) {
-        my $location = $db->{slurp}[0]{location};
-        next if ! defined $location;
-
-        my ($a, $b) = split(/\//, $location);
-        $moffset = (hex("ffffffff") * hex($a)) + hex($b);
-        $saved_db = $db if ! defined $saved_db;
-    }
-
-    if (! defined $moffset) {
-        add_unknown msg('hs-no-location', 'master');
-        return;
-    }
-
-    ## On slave
-    $SQL = q{SELECT pg_last_xlog_receive_location() AS receive, pg_last_xlog_replay_location() AS replay};
-
-    $info = run_command($SQL, { dbnumber => $slave, regex => qr/\// });
-
-    for $db (@{$info->{db}}) {
-        my $receive = $db->{slurp}[0]{receive};
-        my $replay = $db->{slurp}[0]{replay};
-
-        if (defined $receive) {
-            my ($a, $b) = split(/\//, $receive);
-            $s_rec_offset = (hex("ffffffff") * hex($a)) + hex($b);
-        }
-
-        if (defined $replay) {
-            my ($a, $b) = split(/\//, $replay);
-            $s_rep_offset = (hex("ffffffff") * hex($a)) + hex($b);
-        }
-
-        $saved_db = $db if ! defined $saved_db;
-    }
-
-    if (! defined $s_rec_offset and ! defined $s_rep_offset) {
-        add_unknown msg('hs-no-location', 'slave');
-        return;
-    }
-
-    ## Compute deltas
-    $db = $saved_db;
-    my $rec_delta = $moffset - $s_rec_offset;
-    my $rep_delta = $moffset - $s_rep_offset;
-
-    $db->{perf} = qq{replay_delay=$rep_delta;$warning;$critical};
-    $db->{perf} .= qq{ receive_delay=$rec_delta;$warning;$critical};
-
-    ## Do the check on replay delay in case SR has disconnected because it way too far behind
-    my $msg = qq{$rep_delta};
-    if (length $critical and $rep_delta > $critical) {
-        add_critical $msg;
-    } elsif (length $warning and $rep_delta > $warning) {
-        add_warning $msg;
-    } else {
-        add_ok $msg;
-    }
-
-    return;
-} ## End of check_hot_standby_delay
 
 =pod
 
@@ -7391,7 +7468,7 @@ sub check_hot_standby_delay {
 
 B<check_postgres.pl> - a Postgres monitoring script for Nagios, MRTG, Cacti, and others
 
-This documents describes check_postgres.pl version 2.16.0
+This documents describes check_postgres.pl version 2.17.0
 
 =head1 SYNOPSIS
 
@@ -7656,11 +7733,12 @@ which determine if the output is displayed or not, where 'a' = all, 'c' = critic
 =item B<--get_method=VAL>
 
 Allows specification of the method used to fetch information for the C<new_version_cp>, 
-C<new_version_pg>, C<new_version_bc>, and C<new_version_tnm> checks. The following programs are tried, 
-in order, to grab the information from the web: GET, wget, fetch, curl, lynx, links. To force the use of just 
-one (and thus remove the overhead of trying all the others until one of those works), 
-enter one of the names as the argument to get_method. For example, a BSD box might enter 
-the following line in their C<.check_postgresrc> file:
+C<new_version_pg>, C<new_version_bc>, C<new_version_box>, and C<new_version_tnm> checks. 
+The following programs are tried, in order, to grab the information from the web: 
+GET, wget, fetch, curl, lynx, links. To force the use of just one (and thus remove the 
+overhead of trying all the others until one of those works), enter one of the names as 
+the argument to get_method. For example, a BSD box might enter the following line in 
+their C<.check_postgresrc> file:
 
   get_method=fetch
 
@@ -7785,7 +7863,7 @@ enabled on the target databases, and requires that ANALYZE is run frequently.
 The I<--include> and I<--exclude> options can be used to filter out which tables 
 to look at. See the L</"BASIC FILTERING"> section for more details.
 
-The I<--warning> and I<--critical> options can be specified as sizes or percents.
+The I<--warning> and I<--critical> options can be specified as sizes, percents, or both.
 Valid size units are bytes, kilobytes, megabytes, gigabytes, terabytes, exabytes, 
 petabytes, and zettabytes. You can abbreviate all of those with the first letter. Items 
 without units are assumed to be 'bytes'. The default values are '1 GB' and '5 GB'. The value 
@@ -7812,7 +7890,7 @@ should give a rough idea of how bloated things are.
 
 Example 1: Warn if any table on port 5432 is over 100 MB bloated, and critical if over 200 MB
 
-  check_postgres_bloat --port=5432 --warning='100 M', --critical='200 M'
+  check_postgres_bloat --port=5432 --warning='100 M' --critical='200 M'
 
 Example 2: Give a critical if table 'orders' on host 'sami' has more than 10 megs of bloat
 
@@ -7821,6 +7899,16 @@ Example 2: Give a critical if table 'orders' on host 'sami' has more than 10 meg
 Example 3: Give a critical if table 'q4' on database 'sales' is over 50% bloated
 
   check_postgres_bloat --db=sales --include=q4 --critical='50%'
+
+Example 4: Give a critical any table is over 20% bloated I<and> has over 150
+MB of bloat:
+
+  check_postgres_bloat --port=5432 --critical='20% and 150 M'
+
+Example 5: Give a critical any table is over 40% bloated I<or> has over 500 MB
+of bloat:
+
+  check_postgres_bloat --port=5432 --warning='500 M or 40%'
 
 For MRTG output, the first line gives the highest number of wasted bytes for the tables, and the 
 second line gives the highest number of wasted bytes for the indexes. The fourth line gives the database 
@@ -7855,11 +7943,12 @@ For MRTG output, simply outputs a 1 (good connection) or a 0 (bad connection) on
 
 =head2 B<custom_query>
 
-(C<symlink: check_postgres_custom_query>) Runs a custom query of your choosing, and parses the results. The query itself is passed in through 
-the C<custom_query> argument, and should be kept as simple as possible. If at all possible, wrap it in 
-a view or a function to keep things easier to manage. The query should return one or two columns: the first 
-is the result that will be checked, and the second is any performance data you want sent. They must be returned 
-as columns named I<result> and I<data>.
+(C<symlink: check_postgres_custom_query>) Runs a custom query of your choosing, and parses the results. 
+The query itself is passed in through the C<query> argument, and should be kept as simple as possible. 
+If at all possible, wrap it in a view or a function to keep things easier to manage. The query should 
+return one or two columns. It is required that one of the columns be named "result" and is the item 
+that will be checked against your warning and critical values. The second column is for the performance 
+data and any name can be used: this will be the 'value' inside the performance data section.
 
 At least one warning or critical argument must be specified. What these are set to depends on the type of 
 query you are running. There are four types of custom_queries that can be run, specified by the C<valtype> 
@@ -7888,17 +7977,19 @@ Normally, an alert is triggered if the values returned are B<greater than> or eq
 value. However, an option of I<--reverse> will trigger the alert if the returned value is 
 B<lower than> or equal to the critical or warning value.
 
-Example 1: Warn if any relation over 100 pages is named "rad":
+Example 1: Warn if any relation over 100 pages is named "rad", put the number of pages 
+inside the performance data section.
 
-  check_postgres_custom_query --valtype=string -w "rad" --query="SELECT relname FROM pg_class WHERE relpages > 100" --port=5432
+  check_postgres_custom_query --valtype=string -w "rad" --query=
+    "SELECT relname AS result, relpages AS pages FROM pg_class WHERE relpages > 100"
 
 Example 2: Give a critical if the "foobar" function returns a number over 5MB:
 
-  check_postgres_custom_query --port=5432 --critical='5MB'--valtype=size --query="SELECT foobar()"
+  check_postgres_custom_query --critical='5MB'--valtype=size --query="SELECT foobar() AS result"
 
 Example 2: Warn if the function "snazzo" returns less than 42:
 
-  check_postgres_custom_query --port=5432 --critical=42 --query="SELECT snazzo()" --reverse
+  check_postgres_custom_query --critical=42 --query="SELECT snazzo() AS result" --reverse
 
 If you come up with a useful custom_query, consider sending in a patch to this program 
 to make it into a standard action that other people can use.
@@ -8059,7 +8150,7 @@ For MRTG output, returns the number of disabled triggers on the first line.
 that you have the executable "/bin/df" available to report on disk sizes, and it 
 also needs to be run as a superuser, so it can examine the B<data_directory> 
 setting inside of Postgres. The I<--warning> and I<--critical> options are 
-given in either sizes or percentages. If using sizes, the standard unit types 
+given in either sizes or percentages or both. If using sizes, the standard unit types 
 are allowed: bytes, kilobytes, gigabytes, megabytes, gigabytes, terabytes, or 
 exabytes. Each may be abbreviated to the first letter only; no units at all 
 indicates 'bytes'. The default values are '90%' and '95%'.
@@ -8087,6 +8178,15 @@ Example 1: Make sure that no file system is over 90% for the database on port 54
 Example 2: Check that all file systems starting with /dev/sda are smaller than 10 GB and 11 GB (warning and critical)
 
   check_postgres_disk_space --port=5432 --warning='10 GB' --critical='11 GB' --include="~^/dev/sda"
+
+Example 4: Make sure that no file system is both over 50% I<and> has over 15 GB
+
+  check_postgres_disk_space --critical='50% and 15 GB'
+
+Example 5: Issue a warning if any file system is either over 70% full I<or> has
+more than 1T
+
+  check_postgres_disk_space --warning='1T or 75'
 
 For MRTG output, returns the size in bytes of the file system on the first line, 
 and the name of the file system on the fourth line.
@@ -8133,8 +8233,8 @@ the second line.
 =head2 B<hot_standby_delay>
 
 (C<symlink: check_hot_standby_delay>) Checks the streaming replication lag by computing the delta 
-between the xlog position of a master server and the one of a slave connected to it. The slave_
-server must be in hot_standby (eg. read only) mode, therefore the minimum version to use this_
+between the xlog position of a master server and the one of the slaves connected to it. The slave_
+server must be in hot_standby (e.g. read only) mode, therefore the minimum version to use this_
 action is Postgres 9.0. The I<--warning> and I<--critical> options are the delta between xlog 
 location. These values should match the volume of transactions needed to have the streaming 
 replication disconnect from the master because of too much lag.
@@ -8308,6 +8408,16 @@ available, a critical is returned. (Bucardo is a master to slave, and master to 
 replication system for Postgres: see http://bucardo.org for more information).
 See also the information on the C<--get_method> option.
 
+=head2 B<new_version_box>
+
+(C<symlink: check_postgres_new_version_box>) Checks if a newer version of the boxinfo 
+program is available. The current version is obtained by running C<boxinfo.pl --version>.
+If a major upgrade is available, a warning is returned. If a revision upgrade is 
+available, a critical is returned. (boxinfo is a program for grabbing important 
+information from a server and putting it into a HTML format: see 
+http://bucardo.org/wiki/boxinfo for more information). See also the information on 
+the C<--get_method> option.
+
 =head2 B<new_version_cp>
 
 (C<symlink: check_postgres_new_version_cp>) Checks if a newer version of this program 
@@ -8437,9 +8547,9 @@ line lists the database.
 
 =head2 B<query_time>
 
-(C<symlink: check_postgres_query_time>) Checks the length of running queries on one or more databases. There is 
-no need to run this more than once on the same database cluster.
-Databases can be filtered 
+(C<symlink: check_postgres_query_time>) Checks the length of running queries on one or more databases. 
+There is no need to run this more than once on the same database cluster. Note that 
+this already excludes queries that are "idle in transaction". Databases can be filtered 
 by using the I<--include> and I<--exclude> options. See the L</"BASIC FILTERING">
 section for more details. You can also filter on the user running the 
 query with the I<--includeuser> and I<--excludeuser> options.
@@ -8671,15 +8781,17 @@ time and the database time. The fourth line returns the name of the database.
 
 =head2 B<txn_idle>
 
-(C<symlink: check_postgres_txn_idle>) Checks the length of "idle in transaction" queries on one or more databases. There is 
-no need to run this more than once on the same database cluster. Databases can be filtered 
-by using the I<--include> and I<--exclude> options. See the L</"BASIC FILTERING"> 
+(C<symlink: check_postgres_txn_idle>) Checks the number and duration of "idle
+in transaction" queries on one or more databases. There is no need to run this
+more than once on the same database cluster. Databases can be filtered by
+using the I<--include> and I<--exclude> options. See the L</"BASIC FILTERING">
 section below for more details.
 
-The I<--warning> and I<--critical> options are given as units of time, and both must 
-be provided (there are no defaults). Valid units are 'seconds', 'minutes', 'hours', 
-or 'days'. Each may be written singular or abbreviated to just the first letter. 
-If no units are given, the units are assumed to be seconds.
+The I<--warning> and I<--critical> options are given as units of time, signed
+integers, or integers for units of time, and both must be provided (there are
+no defaults). Valid units are 'seconds', 'minutes', 'hours', or 'days'. Each
+may be written singular or abbreviated to just the first letter. If no units
+are given and the numbers are unsigned, the units are assumed to be seconds.
 
 This action requires Postgres 8.0 or better. Additionally, if the version is less than 8.3, 
 the 'stats_command_string' parameter must be set to 'on'.
@@ -8688,8 +8800,17 @@ Example 1: Give a warning if any connection has been idle in transaction for mor
 
   check_postgres_txn_idle --port=5432 --warning='15 seconds'
 
+Example 2: Give a warning if there are 50 or more transactions
+
+  check_postgres_txn_idle --port=5432 --warning='+50'
+
+Example 3: Give a critical if 5 or more connections have been idle in
+transaction for more than 10 seconds:
+
+  check_postgres_txn_idle --port=5432 --critical='5 for 10 seconds'
+
 For MRTG output, returns the time in seconds the longest idle transaction has been running. The fourth 
-line returns the name of the database.
+line returns the name of the database and other information about the longest transaction.
 
 =head2 B<txn_time>
 
@@ -8984,10 +9105,41 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
 =over 4
 
-=item B<Version 2.16.0>
+=item B<Version 2.17.0>
+
+  Give detailed information and refactor txn_idle, txn_time, and query_time
+    (Per request from bug #61)
+
+  Set maxalign to 8 in the bloat check if box identified as '64-bit'
+    (Michel Sijmons, bug #66)
+
+  Support non-standard version strings in the bloat check.
+    (Michel Sijmons and Gurjeet Singh, bug #66)
+
+  Allow "and", "or" inside arguments (David E. Wheeler)
+
+  Add the "new_version_box" action.
+
+  Fix psql version regex (Peter Eisentraut, bug #69)
+
+  Standardize and clean up all perfdata output (bug #52)
+
+  Exclude "idle in transaction" from the query_time check (bug #43)
+
+  Fix the perflimit for the bloat action (bug #50)
+
+  Clean up the custom_query action a bit.
+
+=item B<Version 2.16.0> January 20, 2011
 
   Add new action 'hot_standby_delay' (Nicolas Thauvin)
   Add cache-busting for the version-grabbing utilities.
+  Fix problem with going to next method for new_version_pg
+    (Greg Sabino Mullane, reported by Hywel Mallett in bug #65)
+  Allow /usr/local/etc as an alternative location for the 
+    check_postgresrc file (Hywel Mallett)
+  Do not use tgisconstraint in same_schema if Postgres >= 9
+    (Guillaume Lelarge)
 
 =item B<Version 2.15.4> January 3, 2011
 
@@ -9126,7 +9278,7 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
   Quote dbname in perf output for the backends check. (Davide Abrigo)
   Add 'fetch' as an alternative method for new_version checks, as this 
-    comes by default with FreeBSD. (Hywell Mallett)
+    comes by default with FreeBSD. (Hywel Mallett)
 
 =item B<Version 2.9.2> (July 12, 2009)
 
