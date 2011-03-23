@@ -99,6 +99,8 @@ our %msg = (
     'bloat-nomin'        => q{no relations meet the minimum bloat criteria},
     'bloat-table'        => q{(db $1) table $2.$3 rows:$4 pages:$5 shouldbe:$6 ($7X) wasted size:$8 ($9)},
     'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
+    'checkmode-state'    => q{Database cluster state:},
+    'checkmode-recovery' => q{in archive recovery},
     'checkpoint-baddir'  => q{Invalid data_directory: "$1"},
     'checkpoint-baddir2' => q{pg_controldata could not read the given data directory: "$1"},
     'checkpoint-badver'  => q{Failed to run pg_controldata - probably the wrong version ($1)},
@@ -155,6 +157,8 @@ our %msg = (
     'logfile-seekfail'   => q{Seek on $1 failed: $2},
     'logfile-stderr'     => q{Logfile output has been redirected to stderr: please provide a filename},
     'logfile-syslog'     => q{Database is using syslog, please specify path with --logfile option (fac=$1)},
+    'maxtime'            => q{ maxtime=$1}, ## needs leading space
+    'mode-standby'       => q{Server in standby mode},
     'mrtg-fail'          => q{Action $1 failed: $2},
     'new-ver-nocver'     => q{Could not download version information for $1},
     'new-ver-badver'     => q{Could not parse version information for $1},
@@ -179,6 +183,13 @@ our %msg = (
     'opt-psql-nover'     => q{Could not determine psql version},
     'opt-psql-restrict'  => q{Cannot use the --PSQL option when NO_PSQL_OPTION is on},
     'pgbouncer-pool'     => q{Pool=$1 $2=$3},
+    'pgb-backends-mrtg'  => q{DB=$1 Max connections=$2},
+    'pgb-backends-msg'   => q{$1 of $2 connections ($3%)},
+    'pgb-backends-oknone'=> q{No connections},
+    'pgb-backends-users' => q{$1 for number of users must be a number or percentage},
+    'pgb-maxwait-msg'    => q{longest wait: $1s},
+    'pgb-nomatches'      => q{No matching rows were found},
+    'pgb-skipped'        => q{No matching rows were found (skipped rows: $1)},
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{No prepared transactions found},
@@ -311,7 +322,7 @@ our %msg = (
 },
 'fr' => {
     'address'            => q{adresse},
-'age'                => q{age},
+'age'                => q{âge},
     'backends-fatal'     => q{N'a pas pu se connecter : trop de connexions},
     'backends-mrtg'      => q{DB=$1 Connexions maximum=$2},
     'backends-msg'       => q{$1 connexions sur $2 ($3%)},
@@ -353,7 +364,7 @@ our %msg = (
     'diskspace-nodata'   => q{N'a pas pu déterminer data_directory : êtes-vous connecté en tant que super-utilisateur ?},
     'diskspace-nodf'     => q{N'a pas pu trouver l'exécutable /bin/df},
     'diskspace-nodir'    => q{N'a pas pu trouver le répertoire des données « $1 »},
-'files'              => q{files},
+    'files'              => q{fichiers},
     'file-noclose'       => q{N'a pas pu fermer $1 : $2},
     'fsm-page-highver'   => q{Ne peut pas vérifier fsm_pages sur des serveurs en version 8.4 ou ultérieure},
     'fsm-page-msg'       => q{emplacements de pages utilisés par la FSM : $1 sur $2 ($3%)},
@@ -361,8 +372,8 @@ our %msg = (
     'fsm-rel-msg'        => q{relations tracées par la FSM : $1 sur $2 ($3%)},
     'hs-no-role'         => q{Pas de couple ma??tre/esclave},
     'hs-no-location'     => q{N'a pas pu obtenir l'emplacement courant dans le journal des transactions sur $1},
-'hs-receive-delay'   => q{receive-delay},
-'hs-replay-delay'    => q{replay_delay},
+    'hs-receive-delay'   => q{délai de réception},
+    'hs-replay-delay'    => q{délai de rejeu},
     'invalid-option'     => q{Option invalide},
     'invalid-query'      => q{Une requête invalide a renvoyé : $1},
     'listener-msg'       => q{processus LISTEN trouvés : $1},
@@ -409,13 +420,13 @@ our %msg = (
     'psa-disabled'       => q{Pas de requ??te - est-ce que stats_command_string ou track_activities sont d??sactiv??s ?},
     'psa-noexact'        => q{Erreur inconnue},
     'psa-nosuper'        => q{Aucune correspondance - merci de m'ex??cuter en tant que superutilisateur},
-'qtime-count-msg'    => q{Total queries: $1},
-'qtime-count-none'   => q{not more than $1 queries},
-'qtime-for-msg'      => q{$1 queries longer than $2s, longest: $3s$4 $5},
+    'qtime-count-msg'    => q{Requêtes totales : $1},
+    'qtime-count-none'   => q{pas plus que $1 requêtes},
+    'qtime-for-msg'      => q{$1 requêtes plus longues que $2s, requête la plus longue : $3s$4 $5},
     'qtime-msg'          => q{requête la plus longue : $1s$2 $3},
-'qtime-none'         => q{no queries},
-'queries'            => q{queries},
-'query-time'         => q{query_time},
+    'qtime-none'         => q{aucune requête},
+    'queries'            => q{requêtes},
+    'query-time'         => q{durée de la requête},
     'range-badcs'        => q{Option « $1 » invalide : doit être une somme de contrôle},
     'range-badlock'      => q{Option « $1 » invalide : doit être un nombre de verrou ou « type1=#;type2=# »},
     'range-badpercent'   => q{Option « $1 » invalide : doit être un pourcentage},
@@ -441,7 +452,7 @@ our %msg = (
     'range-warnbigsize'  => q{L'option warning ($1 octets) ne peut pas être plus grand que l'option critical ($2 octets)},
     'range-warnbigtime'  => q{L'option warning ($1 s) ne peut pas être plus grand que l'option critical ($2 s)},
     'range-warnsmall'    => q{L'option warningne peut pas être plus petit que l'option critical},
-'range-nointfortime' => q{Invalid argument for '$1' options: must be an integer, time or integer for time},
+    'range-nointfortime' => q{Argument invalide pour l'option '$1' : doit être un entier, une heure ou un entier horaire},
     'relsize-msg-ind'    => q{le plus gros index est « $1 » : $2},
     'relsize-msg-reli'   => q{la plus grosse relation est l'index « $1 » : $2},
     'relsize-msg-relt'   => q{la plus grosse relation est la table « $1 » : $2},
@@ -470,7 +481,7 @@ our %msg = (
     'runtime-msg'        => q{durée d'exécution de la requête : $1 secondes},
     'same-failed'        => q{Les bases de données sont différentes. Éléments différents : $1},
     'same-matched'       => q{Les bases de données ont les mêmes éléments},
-'size'               => q{size},
+    'size'               => q{taille},
     'slony-noschema'     => q{N'a pas pu déterminer le schéma de Slony},
     'slony-nonumber'     => q{L'appel à sl_status n'a pas renvoyé un numéro},
     'slony-noparse'      => q{N'a pas pu analyser l'appel à sl_status},
@@ -508,17 +519,17 @@ our %msg = (
     'time-years'         => q{années},
     'timesync-diff'      => q{diff},
     'timesync-msg'       => q{timediff=$1 Base de données=$2 Local=$3},
-'transactions'       => q{transactions},
+    'transactions'       => q{transactions},
     'trigger-msg'        => q{Triggers désactivés : $1},
-'txn-time'           => q{transaction_time},
-'txnidle-count-msg'  => q{Total idle in transaction: $1},
+    'txn-time'           => q{durée de la transaction},
+    'txnidle-count-msg'  => q{Transactions en attente totales : $1},
     'txnidle-count-none' => q{pas plus de $1 transaction en attente},
-'txnidle-for-msg'    => q{$1 idle transactions longer than $2s, longest: $3s$4 $5},
+    'txnidle-for-msg'    => q{$1 transactions en attente plus longues que $2s, transaction la plus longue : $3s$4 $5},
     'txnidle-msg'        => q{transaction en attente la plus longue : $1s$2 $3},
     'txnidle-none'       => q{Aucun processus en attente dans une transaction},
-'txntime-count-msg'  => q{Total transactions: $1},
-'txntime-count-none' => q{not more than $1 transactions},
-'txntime-for-msg'    => q{$1 transactions longer than $2s, longest: $3s$4 $5},
+    'txntime-count-msg'  => q{Transactions totales : $1},
+    'txntime-count-none' => q{pas plus que $1 transactions},
+    'txntime-for-msg'    => q{$1 transactions plus longues que $2s, transaction la plus longue : $3s$4 $5},
     'txntime-msg'        => q{Transaction la plus longue : $1s$2 $3},
     'txntime-none'       => q{Aucune transaction},
     'txnwrap-cbig'       => q{La valeur critique doit être inférieure à 2 milliards},
@@ -728,6 +739,7 @@ die $USAGE unless
                'symlinks',
                'debugoutput=s',
                'no-check_postgresrc',
+               'assume-standby-mode',
 
                'action=s',
                'warning=s',
@@ -895,7 +907,6 @@ our $action_info = {
  new_version_cp      => [0, 'Checks if a newer version of check_postgres.pl is available.'],
  new_version_pg      => [0, 'Checks if a newer version of Postgres is available.'],
  new_version_tnm     => [0, 'Checks if a newer version of tail_n_mail is available.'],
- pgbouncer_checksum  => [0, 'Check that no pgbouncer settings have changed since the last check.'],
  pgb_pool_cl_active  => [1, 'Check the number of active clients in each pgbouncer pool.'],
  pgb_pool_cl_waiting => [1, 'Check the number of waiting clients in each pgbouncer pool.'],
  pgb_pool_sv_active  => [1, 'Check the number of active server connections in each pgbouncer pool.'],
@@ -904,6 +915,8 @@ our $action_info = {
  pgb_pool_sv_tested  => [1, 'Check the number of tested server connections in each pgbouncer pool.'],
  pgb_pool_sv_login   => [1, 'Check the number of login server connections in each pgbouncer pool.'],
  pgb_pool_maxwait    => [1, 'Check the current maximum wait time for client connections in pgbouncer pools.'],
+ pgbouncer_backends  => [0, 'Check how many clients are connected to pgbouncer compared to max_client_conn.'],
+ pgbouncer_checksum  => [0, 'Check that no pgbouncer settings have changed since the last check.'],
  prepared_txns       => [1, 'Checks number and age of prepared transactions.'],
  query_runtime       => [0, 'Check how long a specific query takes to run.'],
  query_time          => [1, 'Checks the maximum running time of current queries.'],
@@ -957,12 +970,13 @@ Limit options:
   --excludeuser=exclude objects owned by certain users
 
 Other options:
-  --PSQL=FILE        location of the psql executable; avoid using if possible
-  -v, --verbose      verbosity level; can be used more than once to increase the level
-  -h, --help         display this help information
-  --man              display the full manual
-  -t X, --timeout=X  how long in seconds before we timeout. Defaults to 30 seconds.
-  --symlinks         create named symlinks to the main program for each action
+  --assume-standby-mode assume that server in continious WAL recovery mode
+  --PSQL=FILE           location of the psql executable; avoid using if possible
+  -v, --verbose         verbosity level; can be used more than once to increase the level
+  -h, --help            display this help information
+  --man                 display the full manual
+  -t X, --timeout=X     how long in seconds before we timeout. Defaults to 30 seconds.
+  --symlinks            create named symlinks to the main program for each action
 
 Actions:
 Which test is determined by the --action option, or by the name of the program
@@ -1000,6 +1014,10 @@ if ($opt{showtime}) {
         die msg('no-time-hires');
     }
 }
+
+## Check the current database mode
+our $STANDBY = 0;
+check_standby_mode() if $opt{'assume-standby-mode'};
 
 ## We don't (usually) want to die, but want a graceful Nagios-like exit instead
 sub ndie {
@@ -1076,13 +1094,17 @@ our $psql_version = $1;
 $VERBOSE >= 2 and warn qq{psql=$PSQL version=$psql_version\n};
 
 $opt{defaultdb} = $psql_version >= 8.0 ? 'postgres' : 'template1';
-$opt{defaultdb} = 'pgbouncer' if ($action eq 'pgbouncer_checksum' || $action =~ /^pgb_/);
+$opt{defaultdb} = 'pgbouncer' if $action =~ /^pgb/;
 
 sub add_response {
 
     my ($type,$msg) = @_;
 
     $db->{host} ||= '';
+
+    if ($STANDBY) {
+        $action_info->{$action}[0] = 1;
+    }
 
     if (defined $opt{dbname2} and defined $opt{dbname2}->[0] and length $opt{dbname2}->[0]
         and $opt{dbname}->[0] ne $opt{dbname2}->[0]) {
@@ -1202,6 +1224,67 @@ sub do_mrtg_stats {
     }
     do_mrtg({one => $one, two => $two, msg => $msg});
 }
+
+sub check_standby_mode {
+
+    ## Checks if database in standby mode
+    ## Requires $ENV{PGDATA} or --datadir
+
+    ## Find the data directory, make sure it exists
+    my $dir = $opt{datadir} || $ENV{PGDATA};
+
+    if (!defined $dir or ! length $dir) {
+        ndie msg('checkpoint-nodir');
+    }
+
+    if (! -d $dir) {
+        ndie msg('checkpoint-baddir', $dir);
+    }
+
+    $db->{host} = '<none>';
+
+    ## Run pg_controldata, grab the mode
+    my $pgc
+        = $ENV{PGCONTROLDATA} ? $ENV{PGCONTROLDATA}
+        : $ENV{PGBINDIR}      ? "$ENV{PGBINDIR}/pg_controldata"
+        :                       'pg_controldata';
+    $COM = qq{$pgc "$dir"};
+    eval {
+        $res = qx{$COM 2>&1};
+    };
+    if ($@) {
+        ndie msg('checkpoint-nosys', $@);
+    }
+
+    ## If the path is echoed back, we most likely have an invalid data dir
+    if ($res =~ /$dir/) {
+        ndie msg('checkpoint-baddir2', $dir);
+    }
+
+    if ($res =~ /WARNING: Calculated CRC checksum/) {
+        ndie msg('checkpoint-badver');
+    }
+    if ($res !~ /^pg_control.+\d+/) {
+        ndie msg('checkpoint-badver2');
+    }
+
+    my $regex = msg('checkmode-state');
+    if ($res !~ /$regex\s*(.+)/) { ## no critic (ProhibitUnusedCapture)
+        ## Just in case, check the English one as well
+        $regex = msg_en('checkmode-state');
+        if ($res !~ /$regex\s*(.+)/) {
+            ndie msg('checkpoint-noregex', $dir);
+        }
+    }
+    my $last = $1;
+    $regex = msg('checkmode-recovery');
+    if ($last =~ /$regex/) {
+        $STANDBY = 1;
+    }
+
+    return;
+
+} ## end of check_standby_mode
 
 
 sub finishup {
@@ -1576,6 +1659,9 @@ check_pgb_pool('sv_login') if $action eq 'pgb_pool_sv_login';
 ## Check the current maximum wait time for client connections in pgbouncer pools
 check_pgb_pool('maxwait') if $action eq 'pgb_pool_maxwait';
 
+## Check how many clients are connected to pgbouncer compared to max_client_conn.
+check_pgbouncer_backends() if $action eq 'pgbouncer_backends';
+
 ##
 ## Everything past here does not hit a Postgres database
 ##
@@ -1734,6 +1820,19 @@ sub pretty_time {
 
 
 sub run_command {
+
+    ## First of all check if the server in standby mode, if so end this
+    ## with OK status.
+
+    if ($STANDBY) {
+        $db->{'totaltime'} = '0.00';
+        add_ok msg('mode-standby');
+        if ($MRTG) {
+            do_mrtg({one => 1});
+        }
+        finishup();
+        exit 0;
+    }
 
     ## Run a command string against each of our databases using psql
     ## Optional args in a hashref:
@@ -1949,7 +2048,7 @@ sub run_command {
         my $dbtimeout = $timeout * 1000;
         alarm 0;
 
-        if ($action ne 'pgbouncer_checksum' and $action !~ /^pgb_/) {
+        if ($action !~ /^pgb/) {
             $string = "BEGIN;SET statement_timeout=$dbtimeout;COMMIT;$string";
         }
 
@@ -2853,10 +2952,10 @@ ORDER BY datname
         elsif ($w3) {
             $nwarn = (int $w2*$limit/100)
         }
-        $db->{perf} .= sprintf ' %s=%s;%s;%s;0;%s',
-            perfname($r->{datname}), $r->{current}, $nwarn, $ncrit, $limit;
 
         if (! skip_item($r->{datname})) {
+            $db->{perf} .= sprintf ' %s=%s;%s;%s;0;%s',
+                perfname($r->{datname}), $r->{current}, $nwarn, $ncrit, $limit;
             $total += $r->{current};
         }
     }
@@ -3878,7 +3977,7 @@ FROM (SELECT
     for $db (@{$info->{db}}) {
 
         for my $r (@{$db->{slurp}}) {
-            my ($max,$cur,$percent) = ($r->{maxx},$r->{cur},$r->{percent});
+            my ($max,$cur,$percent) = ($r->{maxx},$r->{cur},$r->{percent}||0);
 
             $MRTG and do_mrtg({one => $percent, two => $cur});
 
@@ -4712,6 +4811,161 @@ sub check_pgbouncer_checksum {
     return;
 
 } ## end of check_pgbouncer_checksum
+
+sub check_pgbouncer_backends {
+
+    ## Check the number of connections to pgbouncer compared to
+    ## max_client_conn
+    ## Supports: Nagios, MRTG
+    ## It makes no sense to run this more than once on the same cluster
+    ## Need to be superuser, else only your queries will be visible
+    ## Warning and criticals can take three forms:
+    ## critical = 12 -- complain if there are 12 or more connections
+    ## critical = 95% -- complain if >= 95% of available connections are used
+    ## critical = -5 -- complain if there are only 5 or fewer connection slots left
+    ## The former two options only work with simple numbers - no percentage or negative
+    ## Can also ignore databases with exclude, and limit with include
+
+    my $warning  = $opt{warning}  || '90%';
+    my $critical = $opt{critical} || '95%';
+    my $noidle   = $opt{noidle}   || 0;
+
+    ## If only critical was used, remove the default warning
+    if ($opt{critical} and !$opt{warning}) {
+        $warning = $critical;
+    }
+
+    my $validre = qr{^(\-?)(\d+)(\%?)$};
+    if ($critical !~ $validre) {
+        ndie msg('pgb-backends-users', 'Critical');
+    }
+    my ($e1,$e2,$e3) = ($1,$2,$3);
+    if ($warning !~ $validre) {
+        ndie msg('pgb-backends-users', 'Warning');
+    }
+    my ($w1,$w2,$w3) = ($1,$2,$3);
+
+    ## If number is greater, all else is same, and not minus
+    if ($w2 > $e2 and $w1 eq $e1 and $w3 eq $e3 and $w1 eq '') {
+        ndie msg('range-warnbig');
+    }
+    ## If number is less, all else is same, and minus
+    if ($w2 < $e2 and $w1 eq $e1 and $w3 eq $e3 and $w1 eq '-') {
+        ndie msg('range-warnsmall');
+    }
+    if (($w1 and $w3) or ($e1 and $e3)) {
+        ndie msg('range-neg-percent');
+    }
+
+    ## Grab information from the config
+    $SQL = qq{SHOW CONFIG};
+
+    my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
+
+    ## Default values for information gathered
+    my $limit = 0;
+
+    ## Determine max_client_conn
+    for my $r (@{$info->{db}[0]{slurp}}) {
+        if ($r->{key} eq 'max_client_conn') {
+            $limit = $r->{value};
+            last;
+        }
+    }
+
+    ## Grab information from pools
+    $SQL = qq{SHOW POOLS};
+
+    $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
+
+    $db = $info->{db}[0];
+
+    my $total = 0;
+    my $grandtotal = @{$db->{slurp}};
+
+    for my $r (@{$db->{slurp}}) {
+
+        ## Always want perf to show all
+        my $nwarn=$w2;
+        my $ncrit=$e2;
+        if ($e1) {
+            $ncrit = $limit-$e2;
+        }
+        elsif ($e3) {
+            $ncrit = (int $e2*$limit/100);
+        }
+        if ($w1) {
+            $nwarn = $limit-$w2;
+        }
+        elsif ($w3) {
+            $nwarn = (int $w2*$limit/100)
+        }
+
+        if (! skip_item($r->{database})) {
+            my $current = $r->{cl_active} + $r->{cl_waiting};
+            $db->{perf} .= " '$r->{database}'=$current;$nwarn;$ncrit;0;$limit";
+            $total += $current;
+        }
+    }
+
+    if ($MRTG) {
+        $stats{$db->{dbname}} = $total;
+        $statsmsg{$db->{dbname}} = msg('pgb-backends-mrtg', $db->{dbname}, $limit);
+        return;
+    }
+
+    if (!$total) {
+        if ($grandtotal) {
+            ## We assume that exclude/include rules are correct, and we simply had no entries
+            ## at all in the specific databases we wanted
+            add_ok msg('pgb-backends-oknone');
+        }
+        else {
+            add_unknown msg('no-match-db');
+        }
+        return;
+    }
+
+    my $percent = (int $total / $limit*100) || 1;
+    my $msg = msg('pgb-backends-msg', $total, $limit, $percent);
+    my $ok = 1;
+
+    if ($e1) { ## minus
+        $ok = 0 if $limit-$total <= $e2;
+    }
+    elsif ($e3) { ## percent
+        my $nowpercent = $total/$limit*100;
+        $ok = 0 if $nowpercent >= $e2;
+    }
+    else { ## raw number
+        $ok = 0 if $total >= $e2;
+    }
+    if (!$ok) {
+        add_critical $msg;
+        return;
+    }
+
+    if ($w1) {
+        $ok = 0 if $limit-$total <= $w2;
+    }
+    elsif ($w3) {
+        my $nowpercent = $total/$limit*100;
+        $ok = 0 if $nowpercent >= $w2;
+    }
+    else {
+        $ok = 0 if $total >= $w2;
+    }
+    if (!$ok) {
+        add_warning $msg;
+        return;
+    }
+
+    add_ok $msg;
+
+    return;
+
+} ## end of check_pgbouncer_backends
+
 
 
 sub check_pgb_pool {
@@ -7658,6 +7912,17 @@ Sets the timeout in seconds after which the script will abort whatever it is doi
 and return an UNKNOWN status. The timeout is per Postgres cluster, not for the entire 
 script. The default value is 10; the units are always in seconds.
 
+=item B<--assume-standby-mode>
+
+If specified, first the check if server in standby mode will be performed
+(--datadir is required), if so, all checks that require SQL queries will be
+ignored and "Server in standby mode" with OK status will be returned instead.
+
+Example:
+
+    postgres@db$./check_postgres.pl --action=version --warning=8.1 --datadir /var/lib/postgresql/8.3/main/ --assume-standby-mode
+    POSTGRES_VERSION OK:  Server in standby mode | time=0.00
+
 =item B<-h> or B<--help>
 
 Displays a help screen with a summary of all actions and options.
@@ -8504,7 +8769,47 @@ a client), "idle" (standing by for a client connection to link with), "used"
 (just unlinked from a client, and not yet returned to the idle pool), "tested"
 (currently being tested) and "login" (in the process of logging in). The
 maxwait value shows how long in seconds the oldest waiting client connection
-has been waiting. 
+has been waiting.
+
+=head2 B<pgbouncer_backends>
+
+(C<symlink: check_postgres_pgbouncer_backends>) Checks the current number of
+connections for one or more databases through pgbouncer, and optionally
+compares it to the maximum allowed, which is determined by the pgbouncer
+configuration variable B<max_client_conn>. The I<--warning> and I<--critical>
+options can take one of three forms. First, a simple number can be given,
+which represents the number of connections at which the alert will be given.
+This choice does not use the B<max_connections> setting. Second, the
+percentage of available connections can be given. Third, a negative number can
+be given which represents the number of connections left until
+B<max_connections> is reached. The default values for I<--warning> and
+I<--critical> are '90%' and '95%'.  You can also filter the databases by use
+of the I<--include> and I<--exclude> options.  See the L</"BASIC FILTERING">
+section for more details.
+
+To view only non-idle processes, you can use the I<--noidle> argument. Note
+that the user you are connecting as must be a superuser for this to work
+properly.
+
+Example 1: Give a warning when the number of connections on host quirm reaches
+120, and a critical if it reaches 150.
+
+  check_postgres_pgbouncer_backends --host=quirm --warning=120 --critical=150 -p 6432 -u pgbouncer
+
+Example 2: Give a critical when we reach 75% of our max_connections setting on
+hosts lancre or lancre2.
+
+  check_postgres_pgbouncer_backends --warning='75%' --critical='75%' --host=lancre,lancre2 -p 6432 -u pgbouncer
+
+Example 3: Give a warning when there are only 10 more connection slots left on
+host plasmid, and a critical when we have only 5 left.
+
+  check_postgres_pgbouncer_backends --warning=-10 --critical=-5 --host=plasmid -p 6432 -u pgbouncer
+
+For MRTG output, the number of connections is reported on the first line, and
+the fourth line gives the name of the database, plus the current
+max_client_conn. If more than one database has been queried, the one with the
+highest number of connections is output.
 
 =head2 B<prepared_txns>
 
@@ -9130,6 +9435,8 @@ Items not specifically attributed are by Greg Sabino Mullane.
 
   Clean up the custom_query action a bit.
 
+  Handle undef percents in check_fsm_relations (Andy Lester)
+
 =item B<Version 2.16.0> January 20, 2011
 
   Add new action 'hot_standby_delay' (Nicolas Thauvin)
@@ -9705,4 +10012,4 @@ OF SUCH DAMAGE.
 
 =cut
 
-# vi: hardtabs=8 shiftwidth=8 noexpandtab nosmarttab
+# vi: tabstop=4 shiftwidth=4 expandtab
