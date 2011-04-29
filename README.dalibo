@@ -1,4 +1,4 @@
-This is the custom dalibo branch.
+This is the unofficial custom dalibo branch.
 
 Since there are some pacthes, signatures are out of date.
 Thus, checking them will lead to failure.
@@ -8,3 +8,5 @@ Patches:
   - Order result by freshness of operation when using perflimit in
     check_last_vacuum_analyze instead of relation name
 
+Disclaimer: this is not a fork of the check_postgres project. Patches come
+  without any warranty.
