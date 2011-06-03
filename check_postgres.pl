@@ -30,7 +30,7 @@ $Data::Dumper::Varname = 'POSTGRES';
 $Data::Dumper::Indent = 2;
 $Data::Dumper::Useqq = 1;
 
-our $VERSION = '2.17.0';
+our $VERSION = '2.17.1';
 
 use vars qw/ %opt $PSQL $res $COM $SQL $db /;
 
@@ -2199,11 +2199,19 @@ sub run_command {
                     warn "$msg\n";
                     my $cline = (caller)[2];
                     my $args = join ' ' => @args;
-                    warn "Version:      $VERSION\n";
-                    warn "Action:       $action\n";
-                    warn "Calling line: $cline\n";
-                    warn "Output:       $line\n";
-                    warn "Command:      $PSQL $args\n";
+                    warn "Version:          $VERSION\n";
+                    warn "Action:           $action\n";
+                    warn "Calling line:     $cline\n";
+                    warn "Output:           $line\n";
+                    warn "Command:          $PSQL $args\n";
+                    ## Last thing is to see if we can grab the PG version
+                    if (! $opt{stop_looping}) {
+                        ## Just in case...
+                        $opt{stop_looping} = 1;
+                        my $info = run_command('SELECT version() AS version');
+                        (my $v = $info->{db}[0]{slurp}[0]{version}) =~ s/(\w+ \S+).+/$1/;
+                        warn "Postgres version: $v\n";
+                    }
                     exit 1;
                 }
             }
@@ -4033,6 +4041,14 @@ sub check_hot_standby_delay {
     if (! defined $slave and ! defined $master) {
         add_unknown msg('hs-no-role');
         return;
+    }
+
+    ## If the slave is "db1" and master "db2", go ahead and switch them around for clearer output
+    if (1 == $slave) {
+        ($slave, $master) = (2, 1);
+        for my $k (qw(host port dbname dbuser dbpass)) {
+            ($opt{$k}, $opt{$k . 2}) = ($opt{$k . 2}, $opt{$k});
+        }
     }
 
     ## Get xlog positions
@@ -9416,6 +9432,10 @@ https://mail.endcrypt.com/mailman/listinfo/check_postgres-commit
 Items not specifically attributed are by Greg Sabino Mullane.
 
 =over 4
+
+=item B<Version 2.18.0>
+
+  Swap db1 and db2 if the slave is 1 for the hot standby check (David E. Wheeler)
 
 =item B<Version 2.17.0>
 
