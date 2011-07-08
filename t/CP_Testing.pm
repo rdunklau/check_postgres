@@ -24,6 +24,7 @@ sub new {
         started  => time(),
         dbdir    => $arg->{dbdir}    || 'test_database_check_postgres',
         testuser => $arg->{testuser} || 'check_postgres_testing',
+        testuser2 => $arg->{testuser2} || 'powerless_pete',
     };
     if (exists $arg->{default_action}) {
         $self->{action} = $arg->{default_action};
@@ -228,7 +229,18 @@ sub test_database_handle {
             if ($res !~ /$newuser/) {
                 $COM = qq{psql -d template1 -q -h "$host" -c "CREATE USER $newuser"};
                 system $COM;
-                $SQL = q{UPDATE pg_shadow SET usesuper='t' WHERE usename = 'check_postgres_testing'};
+                $SQL = q{UPDATE pg_shadow SET usesuper='t' WHERE usename = '$newuser'};
+                $COM = qq{psql -d postgres -q -h "$host" -c "$SQL"};
+                system $COM;
+            }
+
+            $newuser = $self->{testuser2};
+            $SQL = qq{SELECT * FROM pg_user WHERE usename = '$newuser'};
+            $res = qx{psql -Ax -qt -d template1 -q -h "$host" -c "$SQL"};
+            if ($res !~ /$newuser/) {
+                $COM = qq{psql -d template1 -q -h "$host" -c "CREATE USER $newuser"};
+                system $COM;
+                $SQL = q{UPDATE pg_shadow SET usesuper='t' WHERE usename = '$newuser'};
                 $COM = qq{psql -d postgres -q -h "$host" -c "$SQL"};
                 system $COM;
             }
@@ -309,6 +321,12 @@ sub test_database_handle {
         if (!$count) {
             $dbh->do("CREATE USER $dbuser SUPERUSER");
         }
+        my $user2 = $self->{testuser2};
+        $sth->execute($user2);
+        $count = $sth->fetchall_arrayref()->[0][0];
+        if (!$count) {
+            $dbh->do("CREATE USER $user2");
+        }
     }
     $dbh->do('CREATE DATABASE beedeebeedee');
     $dbh->do('CREATE DATABASE ardala');
@@ -316,16 +334,6 @@ sub test_database_handle {
     $dbh->do('CREATE LANGUAGE plperlu');
     $dbh->{AutoCommit} = 0;
     $dbh->{RaiseError} = 1;
-
-    if (! exists $self->{keep_old_schema}) {
-        $SQL = 'SELECT count(*) FROM pg_namespace WHERE nspname = ' . $dbh->quote($fakeschema);
-        my $count = $dbh->selectall_arrayref($SQL)->[0][0];
-        if ($count) {
-            $dbh->{Warn} = 0;
-            $dbh->do("DROP SCHEMA $fakeschema CASCADE");
-            $dbh->{Warn} = 1;
-        }
-    }
 
     if ($arg->{dbname} ne $self->{dbname}) {
         my $tmp_dsn = $dsn;
@@ -411,7 +419,14 @@ sub run {
     my $dbhost = $self->{shorthost} || $self->{dbhost} || die 'No dbhost?';
     my $dbuser = $self->{testuser} || die 'No testuser?';
     my $dbname = $self->{dbname} || die 'No dbname?';
-    my $com = qq{perl check_postgres.pl --no-check_postgresrc --action=$action --dbhost="$dbhost" --dbuser=$dbuser};
+
+    my $com = qq{perl check_postgres.pl --no-check_postgresrc --action=$action};
+    if ($extra !~ /dbhost/) {
+        $com .= qq{ --dbhost="$dbhost"};
+    }
+    if ($extra !~ /dbuser/) {
+        $com .= qq{ --dbuser=$dbuser};
+    }
     if ($extra =~ s/--nodbname//) {
     }
     elsif ($extra !~ /dbname=/) {
@@ -419,7 +434,7 @@ sub run {
     }
 
     if ($double) {
-        $com .= qq{ --dbhost2="$dbhost" --dbname2=ardala --dbuser2=$dbuser};
+        $com .= qq{ --dbhost="$dbhost" --dbname=ardala --dbuser=$dbuser};
     }
 
     $extra and $com .= " $extra";

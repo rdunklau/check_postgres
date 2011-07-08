@@ -1,6 +1,6 @@
 #!perl
 
-## Test the "database_size" action
+## Test the "hitratio" action
 
 use 5.006;
 use strict;
@@ -12,12 +12,12 @@ use CP_Testing;
 
 use vars qw/$dbh $dbh2 $SQL $count $host $t $result $user/;
 
-my $cp = CP_Testing->new({default_action => 'database_commitratio'});
+my $cp = CP_Testing->new({default_action => 'hitratio'});
 
 $dbh = $cp->test_database_handle();
 
-my $S = q{Action 'database_commitratio'};
-my $label = 'POSTGRES_DATABASE_COMMITRATIO';
+my $S = q{Action 'hitratio'};
+my $label = 'POSTGRES_HITRATIO';
 
 $cp->drop_all_tables();
 
@@ -34,7 +34,7 @@ $t=qq{$S returned expected text when warning level and critical level are specif
 like ($cp->run('-w 0% -c 0%'), qr{^$label OK:}, $t);
 
 $t=qq{$S fails when called with an invalid option};
-like ($cp->run('foobar=12'), qr{^\s*Usage:}, $t);
+like ($cp->run('foobar=12'), qr{Usage:}, $t);
 
 $t=qq{$S fails when called with an invalid warning option};
 like ($cp->run('-w felz'),     qr{^ERROR: Invalid 'warning' option: must be a percentage}, $t);
