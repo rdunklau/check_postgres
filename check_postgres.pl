@@ -4808,13 +4808,9 @@ sub check_hot_standby_delay {
 
     $MRTG and do_mrtg({one => $rep_delta, two => $rec_delta});
 
-<<<<<<< HEAD
     $db->{perf} = sprintf '%s=%s;%s;%s ',
-=======
-    $db->{perf} = sprintf ' %s=%s;%s;%s ',
->>>>>>> master
         perfname(msg('hs-replay-delay')), $rep_delta, $warning, $critical;
-    $db->{perf} .= sprintf ' %s=%s;%s;%s',
+    $db->{perf} .= sprintf '%s=%s;%s;%s',
         perfname(msg('hs-receive-delay')), $rec_delta, $warning, $critical;
 
     ## Do the check on replay delay in case SR has disconnected because it way too far behind
@@ -5982,7 +5978,14 @@ WHERE current_query <> '<IDLE>' $USERWHERECLAUSE
 ORDER BY query_start, procpid DESC
 };
 
-    my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
+    ## Craft an alternate version for new servers which do not have procpid and current_query is split
+    my $SQL2 = '';
+    ($SQL2 = $SQL) =~ s/procpid/pid/g;
+    $SQL2 =~ s/SUBSTR\(current_query/SUBSTR\(query/;
+    $SQL2 =~ s/AS current_query/AS query/;
+    $SQL2 =~ s/current_query <> '<IDLE>'/state <> 'idle'/;
+
+    my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1, version => [ ">9.1 $SQL2" ] } );
 
     ## Default values for information gathered
     my ($maxtime, $client_addr, $client_port, $procpid, $username, $maxdb, $maxq) =
@@ -6026,7 +6029,7 @@ ORDER BY query_start, procpid DESC
                 $maxtime     = $r->{qtime};
                 $maxdb       = $r->{datname};
                 $username    = $r->{usename};
-                $maxq        = $r->{current_query};
+                $maxq        = $r->{query} || $r->{current_query};
             }
         }
 
