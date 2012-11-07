@@ -42,6 +42,7 @@
 		<li><a href="#backends"><strong>backends</strong></a></li>
 		<li><a href="#bloat"><strong>bloat</strong></a></li>
 		<li><a href="#checkpoint"><strong>checkpoint</strong></a></li>
+		<li><a href="#cluster_id"><strong>cluster_id</strong></a></li>
 		<li><a href="#commitratio"><strong>commitratio</strong></a></li>
 		<li><a href="#connection"><strong>connection</strong></a></li>
 		<li><a href="#custom_query"><strong>custom_query</strong></a></li>
@@ -68,7 +69,6 @@
 		<li><a href="#new_version_cp"><strong>new_version_cp</strong></a></li>
 		<li><a href="#new_version_pg"><strong>new_version_pg</strong></a></li>
 		<li><a href="#new_version_tnm"><strong>new_version_tnm</strong></a></li>
-		<li><a href="#pgbouncer_checksum"><strong>pgbouncer_checksum</strong></a></li>
 		<li><a href="#pgb_pool_cl_active"><strong>pgb_pool_cl_active</strong></a></li>
 		<li><a href="#pgb_pool_cl_waiting"><strong>pgb_pool_cl_waiting</strong></a></li>
 		<li><a href="#pgb_pool_sv_active"><strong>pgb_pool_sv_active</strong></a></li>
@@ -78,6 +78,8 @@
 		<li><a href="#pgb_pool_sv_login"><strong>pgb_pool_sv_login</strong></a></li>
 		<li><a href="#pgb_pool_maxwait"><strong>pgb_pool_maxwait</strong></a></li>
 		<li><a href="#pgbouncer_backends"><strong>pgbouncer_backends</strong></a></li>
+		<li><a href="#pgbouncer_checksum"><strong>pgbouncer_checksum</strong></a></li>
+		<li><a href="#pgagent_jobs"><strong>pgagent_jobs</strong></a></li>
 		<li><a href="#prepared_txns"><strong>prepared_txns</strong></a></li>
 		<li><a href="#query_runtime"><strong>query_runtime</strong></a></li>
 		<li><a href="#query_time"><strong>query_time</strong></a></li>
@@ -121,7 +123,7 @@
 <hr />
 <h1><a name="name">NAME</a></h1>
 <p><strong>check_postgres.pl</strong> - a Postgres monitoring script for Nagios, MRTG, Cacti, and others</p>
-<p>This documents describes check_postgres.pl version 2.18.0</p>
+<p>This documents describes check_postgres.pl version 2.20.0</p>
 <p>
 </p>
 <hr />
@@ -263,9 +265,14 @@ Instead, one should use a .pgpass or pg_service.conf file.</p>
 <dt><strong><a name="dbservice_name" class="item"><strong>--dbservice=NAME</strong></a></strong></dt>
 
 <dd>
-<p>The name of a service inside of the pg_service.conf file. This file is in your home directory by 
-default and contains a simple list of connection options. You can also pass additional information 
+<p>The name of a service inside of the pg_service.conf file. Before version 9.0 of Postgres, this is 
+a global file, usually found in /etc/pg_service.conf. If you are using version 9.0 or higher of 
+Postgres, you can use the file &quot;.pg_service.conf&quot; in the home directory of the user running 
+the script, e.g. nagios.</p>
+<p>This file contains a simple list of connection options. You can also pass additional information 
 when using this option such as --dbservice=&quot;maindatabase sslmode=require&quot;</p>
+<p>The documentation for this file can be found at
+<a href="http://www.postgresql.org/docs/current/static/libpq-pgservice.html">http://www.postgresql.org/docs/current/static/libpq-pgservice.html</a></p>
 </dd>
 </dl>
 <p>The database connection options can be grouped: <em>--host=a,b --host=c --port=1234 --port=3344</em>
@@ -329,6 +336,16 @@ ignored and &quot;Server in standby mode&quot; with OK status will be returned i
     postgres@db$./check_postgres.pl --action=version --warning=8.1 --datadir /var/lib/postgresql/8.3/main/ --assume-standby-mode
     POSTGRES_VERSION OK:  Server in standby mode | time=0.00</pre>
 </dd>
+<dt><strong><a name="assume_prod" class="item"><strong>--assume-prod</strong></a></strong></dt>
+
+<dd>
+<p>If specified, check if server in production mode is performed (--datadir is required).
+The option is only relevant for (<code>symlink: check_postgres_checkpoint</code>).</p>
+<p>Example:</p>
+<pre>
+    postgres@db$./check_postgres.pl --action=checkpoint --datadir /var/lib/postgresql/8.3/main/ --assume-prod
+    POSTGRES_CHECKPOINT OK: Last checkpoint was 72 seconds ago | age=72;;300 mode=MASTER</pre>
+</dd>
 <dt><strong><a name="h_or_help" class="item"><strong>-h</strong> or <strong>--help</strong></a></strong></dt>
 
 <dd>
@@ -380,10 +397,22 @@ Only takes effect if using Nagios output mode.</p>
 <dd>
 <p>Enables test mode. See the <a href="#test_mode">TEST MODE</a> section below.</p>
 </dd>
+<dt><strong><a name="pgbindir_path" class="item"><strong>--PGBINDIR=PATH</strong></a></strong></dt>
+
+<dd>
+<p>Tells the script where to find the psql binaries. Useful if you have more than
+one version of the PostgreSQL executables on your system, or if there are not
+in your path. Note that this option is in all uppercase. By default, this option
+is <em>not allowed</em>. To enable it, you must change the <code>$NO_PSQL_OPTION</code> near the
+top of the script to 0. Avoid using this option if you can, and instead use
+environement variable c&lt;PGBINDIR&gt; or hard-coded <code>$PGBINDIR</code> variable, also near
+the top of the script, to set the path to the PostgreSQL to use.</p>
+</dd>
 <dt><strong><a name="psql_path" class="item"><strong>--PSQL=PATH</strong></a></strong></dt>
 
 <dd>
-<p>Tells the script where to find the psql program. Useful if you have more than 
+<p><em>(deprecated, this option may be removed in a future release!)</em>
+Tells the script where to find the psql program. Useful if you have more than 
 one version of the psql executable on your system, or if there is no psql program 
 in your path. Note that this option is in all uppercase. By default, this option 
 is <em>not allowed</em>. To enable it, you must change the <code>$NO_PSQL_OPTION</code> near the 
@@ -542,7 +571,8 @@ used by the table and index, and what we compute that it should be.</p>
 smaller relations. Tables must have at least 10 pages, and indexes at least 15, 
 before they can be considered by this test. If you really want to adjust these 
 values, you can look for the variables <em>$MINPAGES</em> and <em>$MINIPAGES</em> at the top of the 
-<code>check_bloat</code> subroutine.</p>
+<code>check_bloat</code> subroutine. These values are ignored if either <em>--exclude</em> or 
+<em>--include</em> is used.</p>
 <p>Only the top 10 most bloated relations are shown. You can change this number by 
 using the <em>--perflimit</em> option to set your own limit.</p>
 <p>The schema named 'information_schema' is excluded from this test, as the only tables 
@@ -583,12 +613,31 @@ processing shipped WAL files, and is meant to check that your warm standby is tr
 The data directory must be set, either by the environment variable <code>PGDATA</code>, or passing 
 the <code>--datadir</code> argument. It returns the number of seconds since the last checkpoint 
 was run, as determined by parsing the call to <code>pg_controldata</code>. Because of this, the 
-pg_controldata executable must be available in the current path. Alternatively, you can 
-set the environment variable <code>PGCONTROLDATA</code> to the exact location of the pg_controldata 
-executable, or you can specify <code>PGBINDIR</code> as the directory that it lives in.</p>
+pg_controldata executable must be available in the current path. Alternatively,
+you can specify <code>PGBINDIR</code> as the directory that it lives in.
+It is also possible to use the special options <em>--assume-prod</em> or
+<em>--assume-standby-mode</em>, if the mode found is not the one expected, a CRITICAL is emitted.</p>
 <p>At least one warning or critical argument must be set.</p>
 <p>This action requires the Date::Parse module.</p>
 <p>For MRTG or simple output, returns the number of seconds.</p>
+<p>
+</p>
+<h2><a name="cluster_id"><strong>cluster_id</strong></a></h2>
+<p>(<code>symlink: check_postgres_cluster-id</code>) Checks that the Database System Identifier
+provided by pg_controldata is the same as last time you checked. This must run on the same
+server as the database that is being checked (e.g. the -h flag will not work).
+Either the <em>--warning</em> or the <em>--critical</em> option should be given, but not both. The value
+of each one is the cluster identifier, an integer value. You can run with the special <code>--critical=0</code> option
+to find out an existing cluster identifier.</p>
+<p>Example 1: Find the initial identifier</p>
+<pre>
+  check_postgres_cluster_id --critical=0 --datadir=/var//lib/postgresql/9.0/main</pre>
+<p>Example 2: Make sure the cluster is the same and warn if not, using the result from above.</p>
+<pre>
+  check_postgres_cluster_id  --critical=5633695740047915135</pre>
+<p>For MRTG output, returns a 1 or 0 indicating success of failure of the identifier to match. A
+identifier must be provided as the <code>--mrtg</code> argument. The fourth line always gives the
+current identifier.</p>
 <p>
 </p>
 <h2><a name="commitratio"><strong>commitratio</strong></a></h2>
@@ -887,7 +936,7 @@ the second line.</p>
 <p>
 </p>
 <h2><a name="hitratio"><strong>hitratio</strong></a></h2>
-<p>(<code>symlink: check_postgres_database_hitratio</code>) Checks the hit ratio of all databases and complains when they are too low.
+<p>(<code>symlink: check_postgres_hitratio</code>) Checks the hit ratio of all databases and complains when they are too low.
 There is no need to run this command more than once per database cluster. 
 Databases can be filtered with 
 the <em>--include</em> and <em>--exclude</em> options. See the <a href="#basic_filtering">BASIC FILTERING</a> section 
@@ -901,7 +950,7 @@ cannot be greater than the critical value. The output returns all databases sort
 hitratio, smallest first.</p>
 <p>Example: Warn if any database on host flagg is less than 90% in hitratio, and critical if less then 80%.</p>
 <pre>
-  check_postgres_database_hitratio --host=flagg --warning='90%' --critical='80%'</pre>
+  check_postgres_hitratio --host=flagg --warning='90%' --critical='80%'</pre>
 <p>For MRTG output, returns the percentage of the database with the smallest hitratio on the first line, 
 and the name of the database on the fourth line.</p>
 <p>
@@ -1000,9 +1049,11 @@ last vacuumed or analyzed. The fourth line returns the name of the database and 
 <p>
 </p>
 <h2><a name="listener"><strong>listener</strong></a></h2>
-<p>(<code>symlink: check_postgres_listener</code>) Confirm that someone is listening for one or more specific strings. Only one of warning or critical is needed. The format 
-is a simple string representing the LISTEN target, or a tilde character followed by a string for a regular expression 
-check.</p>
+<p>(<code>symlink: check_postgres_listener</code>) Confirm that someone is listening for one or more 
+specific strings (using the LISTEN/NOTIFY system), by looking at the pg_listener table. 
+Only one of warning or critical is needed. The format is a simple string representing the 
+LISTEN target, or a tilde character followed by a string for a regular expression check.
+Note that this check will not work on versions of Postgres 9.0 or higher.</p>
 <p>Example 1: Give a warning if nobody is listening for the string bucardo_mcp_ping on ports 5555 and 5556</p>
 <pre>
   check_postgres_listener --port=5555,5556 --warning=bucardo_mcp_ping</pre>
@@ -1104,27 +1155,6 @@ See: <a href="http://bucardo.org/wiki/Tail_n_mail">http://bucardo.org/wiki/Tail_
 See also the information on the <code>--get_method</code> option.</p>
 <p>
 </p>
-<h2><a name="pgbouncer_checksum"><strong>pgbouncer_checksum</strong></a></h2>
-<p>(<code>symlink: check_postgres_pgbouncer_checksum</code>) Checks that all the
-pgBouncer settings are the same as last time you checked. 
-This is done by generating a checksum of a sorted list of setting names and 
-their values. Note that you shouldn't specify the database name, it will
-automatically default to pgbouncer.  Either the <em>--warning</em> or the <em>--critical</em> option 
-should be given, but not both. The value of each one is the checksum, a 
-32-character hexadecimal value. You can run with the special <code>--critical=0</code> option 
-to find out an existing checksum.</p>
-<p>This action requires the Digest::MD5 module.</p>
-<p>Example 1: Find the initial checksum for pgbouncer configuration on port 6432 using the default user (usually postgres)</p>
-<pre>
-  check_postgres_pgbouncer_checksum --port=6432 --critical=0</pre>
-<p>Example 2: Make sure no settings have changed and warn if so, using the checksum from above.</p>
-<pre>
-  check_postgres_pgbouncer_checksum --port=6432 --warning=cd2f3b5e129dc2b4f5c0f6d8d2e64231</pre>
-<p>For MRTG output, returns a 1 or 0 indicating success of failure of the checksum to match. A 
-checksum must be provided as the <code>--mrtg</code> argument. The fourth line always gives the 
-current checksum.</p>
-<p>
-</p>
 <h2><a name="pgb_pool_cl_active"><strong>pgb_pool_cl_active</strong></a></h2>
 <p>
 </p>
@@ -1200,6 +1230,48 @@ max_client_conn. If more than one database has been queried, the one with the
 highest number of connections is output.</p>
 <p>
 </p>
+<h2><a name="pgbouncer_checksum"><strong>pgbouncer_checksum</strong></a></h2>
+<p>(<code>symlink: check_postgres_pgbouncer_checksum</code>) Checks that all the
+pgBouncer settings are the same as last time you checked. 
+This is done by generating a checksum of a sorted list of setting names and 
+their values. Note that you shouldn't specify the database name, it will
+automatically default to pgbouncer.  Either the <em>--warning</em> or the <em>--critical</em> option 
+should be given, but not both. The value of each one is the checksum, a 
+32-character hexadecimal value. You can run with the special <code>--critical=0</code> option 
+to find out an existing checksum.</p>
+<p>This action requires the Digest::MD5 module.</p>
+<p>Example 1: Find the initial checksum for pgbouncer configuration on port 6432 using the default user (usually postgres)</p>
+<pre>
+  check_postgres_pgbouncer_checksum --port=6432 --critical=0</pre>
+<p>Example 2: Make sure no settings have changed and warn if so, using the checksum from above.</p>
+<pre>
+  check_postgres_pgbouncer_checksum --port=6432 --warning=cd2f3b5e129dc2b4f5c0f6d8d2e64231</pre>
+<p>For MRTG output, returns a 1 or 0 indicating success of failure of the checksum to match. A 
+checksum must be provided as the <code>--mrtg</code> argument. The fourth line always gives the 
+current checksum.</p>
+<p>
+</p>
+<h2><a name="pgagent_jobs"><strong>pgagent_jobs</strong></a></h2>
+<p>(<code>symlink: check_postgres_pgagent_jobs</code>) Checks that all the pgAgent jobs
+that have executed in the preceding interval of time have succeeded. This is
+done by checking for any steps that have a non-zero result.</p>
+<p>Either <code>--warning</code> or <code>--critical</code>, or both, may be specified as times, and
+jobs will be checked for failures withing the specified periods of time before
+the current time. Valid units are seconds, minutes, hours, and days; all can
+be abbreviated to the first letter. If no units are given, 'seconds' are
+assumed.</p>
+<p>Example 1: Give a critical when any jobs executed in the last day have failed.</p>
+<pre>
+  check_postgres_pgagent_jobs --critical=1d</pre>
+<p>Example 2: Give a warning when any jobs executed in the last week have failed.</p>
+<pre>
+  check_postgres_pgagent_jobs --warning=7d</pre>
+<p>Example 3: Give a critical for jobs that have failed in the last 2 hours and a
+warning for jobs that have failed in the last 4 hours:</p>
+<pre>
+  check_postgres_pgagent_jobs --critical=2h --warning=4h</pre>
+<p>
+</p>
 <h2><a name="prepared_txns"><strong>prepared_txns</strong></a></h2>
 <p>(<code>symlink: check_postgres_prepared_txns</code>) Check on the age of any existing prepared transactions. 
 Note that most people will NOT use prepared transactions, as they are part of two-part commit 
@@ -1213,8 +1285,8 @@ critical are the number of seconds a prepared transaction has been open before a
 <p>Example 2: Give a critical if any prepared transaction has been open longer than 10 seconds, but allow 
 up to 360 seconds for the database 'shrike':</p>
 <pre>
-  check_postgres_listener --critical=10 --exclude=shrike
-  check_postgres_listener --critical=360 --include=shrike</pre>
+  check_postgres_prepared_txns --critical=10 --exclude=shrike
+  check_postgres_prepared_txns --critical=360 --include=shrike</pre>
 <p>For MRTG output, returns the number of seconds the oldest transaction has been open as the first line, 
 and which database is came from as the final line.</p>
 <p>
@@ -1247,6 +1319,7 @@ time, and default to '2 minutes' and '5 minutes' respectively. Valid units
 are 'seconds', 'minutes', 'hours', or 'days'. Each may be written singular or 
 abbreviated to just the first letter. If no units are given, the unit is 
 assumed to be seconds.</p>
+<p>This action requires Postgres 8.1 or better.</p>
 <p>Example 1: Give a warning if any query has been running longer than 3 minutes, and a critical if longer than 5 minutes.</p>
 <pre>
   check_postgres_query_time --port=5432 --warning='3 minutes' --critical='5 minutes'</pre>
@@ -1342,6 +1415,7 @@ examples below.</p>
 The first time this is run a snapshot of all the items in the database is 
 saved to a local file. When you run it again, that snapshot is read in and 
 becomes &quot;database #2&quot; and is compared to the current database.</p>
+<p>To replace the old stored file with the new version, use the --replace argument.</p>
 <p>To enable snapshots at various points in time, you can use the &quot;--suffix&quot; 
 argument to make the filenames unique to each run. See the examples below.</p>
 <p>Example 1: Verify that two databases on hosts star and line are the same:</p>
@@ -1360,9 +1434,9 @@ argument to make the filenames unique to each run. See the examples below.</p>
 <pre>
   check_postgres_same_schema --dbname=cylon --suffix=daily
   check_postgres_same_schema --dbname=cylon --suffix=weekly</pre>
-<p>Example 6: Run a historical comparison</p>
+<p>Example 6: Run a historical comparison, then replace the file</p>
 <pre>
-  check_postgres_same_schema --dbname=cylon --suffix=daily</pre>
+  check_postgres_same_schema --dbname=cylon --suffix=daily --replace</pre>
 <p>
 </p>
 <h2><a name="sequence"><strong>sequence</strong></a></h2>
@@ -1447,8 +1521,7 @@ integers, or integers for units of time, and both must be provided (there are
 no defaults). Valid units are 'seconds', 'minutes', 'hours', or 'days'. Each
 may be written singular or abbreviated to just the first letter. If no units
 are given and the numbers are unsigned, the units are assumed to be seconds.</p>
-<p>This action requires Postgres 8.0 or better. Additionally, if the version is less than 8.3, 
-the 'stats_command_string' parameter must be set to 'on'.</p>
+<p>This action requires Postgres 8.3 or better.</p>
 <p>Example 1: Give a warning if any connection has been idle in transaction for more than 15 seconds:</p>
 <pre>
   check_postgres_txn_idle --port=5432 --warning='15 seconds'</pre>
@@ -1661,7 +1734,8 @@ check_postgresrc files can be ignored by supplying a <code>--no-checkpostgresrc<
 </p>
 <hr />
 <h1><a name="environment_variables">ENVIRONMENT VARIABLES</a></h1>
-<p>The environment variable <em>$ENV{HOME}</em> is used to look for a <em class="file">.check_postgresrc</em> file.</p>
+<p>The environment variable <em>$ENV{HOME}</em> is used to look for a <em class="file">.check_postgresrc</em> file.
+The environment variable <em>$ENV{PGBINDIR}</em> is used to look for PostgreSQL binaries.</p>
 <p>
 </p>
 <hr />
@@ -1717,30 +1791,77 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 </p>
 <hr />
 <h1><a name="history">HISTORY</a></h1>
-<p>Items not specifically attributed are by Greg Sabino Mullane.</p>
+<p>Items not specifically attributed are by GSM (Greg Sabino Mullane).</p>
 <dl>
-<dt><strong><a name="version_2_18_0" class="item"><strong>Version 2.18.0</strong></a></strong></dt>
+<dt><strong><a name="version_2_20_0" class="item"><strong>Version 2.20.0</strong></a></strong></dt>
+
+<dd>
+<pre>
+  Add check for pgagent jobs (David E. Wheeler)</pre>
+<pre>
+  Force STDOUT to use utf8 for proper output
+    (Greg Sabino Mullane; reported by Emmanuel Lesouef)</pre>
+<pre>
+  Allow for spaces in item lists when doing same_schema.</pre>
+<pre>
+  Allow txn_idle to work again for &lt; 8.3 servers by switching to query_time.</pre>
+<pre>
+  Cache sequence information to speed up same_schema runs.</pre>
+</dd>
+<dt><strong><a name="version_2_19_0_january_17_2012" class="item"><strong>Version 2.19.0</strong> January 17, 2012</a></strong></dt>
+
+<dd>
+<pre>
+  Add the --assume-prod option (Cédric Villemain)</pre>
+<pre>
+  Add the cluster_id check (Cédric Villemain)</pre>
+<pre>
+  Improve settings_checksum and checkpoint tests (Cédric Villemain)</pre>
+<pre>
+  Do no do an inner join to pg_user when checking database size
+    (Greg Sabino Mullane; reported by Emmanuel Lesouef)</pre>
+<pre>
+  Use the full path when getting sequence information for same_schema.
+    (Greg Sabino Mullane; reported by Cindy Wise)</pre>
+<pre>
+  Fix the formula for calculating xlog positions (Euler Taveira de Oliveira)</pre>
+<pre>
+  Better ordering of output for bloat check - make indexes as important
+    as tables (Greg Sabino Mullane; reported by Jens Wilke)</pre>
+<pre>
+  Show the dbservice if it was used at top of same_schema output
+    (Mike Blackwell)</pre>
+<pre>
+  Better installation paths (Greg Sabino Mullane, per bug 53)</pre>
+</dd>
+<dt><strong><a name="version_2_18_0_october_2_2011" class="item"><strong>Version 2.18.0</strong> October 2, 2011</a></strong></dt>
 
 <dd>
 <pre>
   Redo the same_schema action. Use new --filter argument for all filtering.
   Allow comparisons between any number of databases.
-  Remove the db*2 arguments.
+  Remove the dbname2, dbport2, etc. arguments.
   Allow comparison of the same db over time.</pre>
 <pre>
   Swap db1 and db2 if the slave is 1 for the hot standby check (David E. Wheeler)</pre>
+<pre>
+  Allow multiple --schema arguments for the slony_status action (GSM and Jehan-Guillaume de Rorthais)</pre>
 <pre>
   Fix ORDER BY in the last vacuum/analyze action (Nicolas Thauvin)</pre>
 <pre>
   Fix check_hot_standby_delay perfdata output (Nicolas Thauvin)</pre>
 <pre>
-  Look in the correct place for the .ready files with the archive_ready action ((Nicolas Thauvin)</pre>
+  Look in the correct place for the .ready files with the archive_ready action (Nicolas Thauvin)</pre>
 <pre>
   New action: commitratio (Guillaume Lelarge)</pre>
 <pre>
   New action: hitratio (Guillaume Lelarge)</pre>
 <pre>
   Make sure --action overrides the symlink naming trick.</pre>
+<pre>
+  Set defaults for archive_ready and wal_files (Thomas Guettler, GSM)</pre>
+<pre>
+  Better output for wal_files and archive_ready (GSM)</pre>
 <pre>
   Fix warning when client_port set to empty string (bug #79)</pre>
 <pre>
@@ -1769,6 +1890,8 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 <pre>
   Add the --assume-standby-mode option (Ruslan Kabalin)</pre>
 <pre>
+  Note that txn_idle and query_time require 8.3 (Thomas Guettler)</pre>
+<pre>
   Standardize and clean up all perfdata output (bug #52)</pre>
 <pre>
   Exclude &quot;idle in transaction&quot; from the query_time check (bug #43)</pre>
@@ -1777,7 +1900,11 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 <pre>
   Clean up the custom_query action a bit.</pre>
 <pre>
+  Fix space in perfdata for hot_standby_delay action (Nicolas Thauvin)</pre>
+<pre>
   Handle undef percents in check_fsm_relations (Andy Lester)</pre>
+<pre>
+  Fix typo in dbstats action (Stas Vitkovsky)</pre>
 <pre>
   Fix MRTG for last vacuum and last_analyze actions.</pre>
 </dd>
@@ -2516,7 +2643,7 @@ feature requests, and commit notices, send email to <a href="mailto:check_postgr
 </p>
 <hr />
 <h1><a name="license_and_copyright">LICENSE AND COPYRIGHT</a></h1>
-<p>Copyright (c) 2007-2011 Greg Sabino Mullane &lt;<a href="mailto:greg@endpoint.com">greg@endpoint.com</a>&gt;.</p>
+<p>Copyright (c) 2007-2012 Greg Sabino Mullane &lt;<a href="mailto:greg@endpoint.com">greg@endpoint.com</a>&gt;.</p>
 <p>Redistribution and use in source and binary forms, with or without 
 modification, are permitted provided that the following conditions are met:</p>
 <pre>

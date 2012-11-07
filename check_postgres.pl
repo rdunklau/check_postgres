@@ -30,9 +30,11 @@ $Data::Dumper::Varname = 'POSTGRES';
 $Data::Dumper::Indent = 2;
 $Data::Dumper::Useqq = 1;
 
-our $VERSION = '2.18.0';
+binmode STDOUT, ':utf8';
 
-use vars qw/ %opt $PSQL $res $COM $SQL $db /;
+our $VERSION = '2.20.0';
+
+use vars qw/ %opt $PGBINDIR $PSQL $res $COM $SQL $db /;
 
 ## Which user to connect as if --dbuser is not given
 $opt{defaultuser} = 'postgres';
@@ -43,11 +45,11 @@ $opt{defaultport} = 5432;
 ## What type of output to use by default
 our $DEFAULT_OUTPUT = 'nagios';
 
-## If psql is not in your path, it is recommended to hardcode it here,
-## as an alternative to the --PSQL option
-$PSQL = '';
+## If psql binaries are not in your path, it is recommended to hardcode it here,
+## as an alternative to the --PGBINDIR option
+$PGBINDIR = '';
 
-## If this is true, $opt{PSQL} is disabled for security reasons
+## If this is true, $opt{PSQL} and $opt{PGBINDIR} are disabled for security reasons
 our $NO_PSQL_OPTION = 1;
 
 ## If true, we show how long each query took by default. Requires Time::HiRes to be installed.
@@ -99,8 +101,12 @@ our %msg = (
     'bloat-nomin'        => q{no relations meet the minimum bloat criteria},
     'bloat-table'        => q{(db $1) table $2.$3 rows:$4 pages:$5 shouldbe:$6 ($7X) wasted size:$8 ($9)},
     'bug-report'         => q{Please report these details to check_postgres@bucardo.org:},
-    'checkmode-state'    => q{Database cluster state:},
+    'checkcluster-id'    => q{Database system identifier:},
+    'checkcluster-msg'   => q{cluster_id: $1},
+    'checkcluster-nomrtg'=> q{Must provide a number via the --mrtg option},
+    'checkmode-prod'     => q{in production},
     'checkmode-recovery' => q{in archive recovery},
+    'checkmode-state'    => q{Database cluster state:},
     'checkpoint-baddir'  => q{Invalid data_directory: "$1"},
     'checkpoint-baddir2' => q{pg_controldata could not read the given data directory: "$1"},
     'checkpoint-badver'  => q{Failed to run pg_controldata - probably the wrong version ($1)},
@@ -108,7 +114,7 @@ our %msg = (
     'checkpoint-nodir'   => q{Must supply a --datadir argument or set the PGDATA environment variable},
     'checkpoint-nodp'    => q{Must install the Perl module Date::Parse to use the checkpoint action},
     'checkpoint-noparse' => q{Unable to parse pg_controldata output: "$1"},
-    'checkpoint-noregex' => q{Call to pg_controldata $1 failed},
+    'checkpoint-noregex' => q{Unable to find the regex for this check},
     'checkpoint-nosys'   => q{Could not call pg_controldata: $1},
     'checkpoint-ok'      => q{Last checkpoint was 1 second ago},
     'checkpoint-ok2'     => q{Last checkpoint was $1 seconds ago},
@@ -121,6 +127,7 @@ our %msg = (
     'custom-nostring'    => q{Must provide a query string},
     'database'           => q{database},
     'dbsize-version'     => q{Target database must be version 8.1 or higher to run the database_size action},
+    'depr-pgcontroldata' => q{PGCONTROLDATA is deprecated, use PGBINDIR instead.},
     'die-action-version' => q{Cannot run "$1": server version must be >= $2, but is $3},
     'die-badtime'        => q{Value for '$1' must be a valid time. Examples: -$2 1s  -$2 "10 minutes"},
     'die-badversion'     => q{Invalid version string: $1},
@@ -160,6 +167,7 @@ our %msg = (
     'logfile-stderr'     => q{Logfile output has been redirected to stderr: please provide a filename},
     'logfile-syslog'     => q{Database is using syslog, please specify path with --logfile option (fac=$1)},
     'mode-standby'       => q{Server in standby mode},
+    'mode'               => q{mode},
     'mrtg-fail'          => q{Action $1 failed: $2},
     'new-ver-nocver'     => q{Could not download version information for $1},
     'new-ver-badver'     => q{Could not parse version information for $1},
@@ -168,6 +176,7 @@ our %msg = (
     'new-ver-ok'         => q{Version $1 is the latest for $2},
     'new-ver-warn'       => q{Please upgrade to version $1 of $2. You are running $3},
     'new-ver-tt'         => q{Your version of $1 ($2) appears to be ahead of the current release! ($3)},
+    'no-db'              => q{No databases},
     'no-match-db'        => q{No matching databases found due to exclusion/inclusion options},
     'no-match-fs'        => q{No matching file systems found due to exclusion/inclusion options},
     'no-match-rel'       => q{No matching relations found due to exclusion/inclusion options},
@@ -182,15 +191,13 @@ our %msg = (
     'opt-psql-noexist'   => q{Cannot find given psql executable: $1},
     'opt-psql-nofind'    => q{Could not find a suitable psql executable},
     'opt-psql-nover'     => q{Could not determine psql version},
-    'opt-psql-restrict'  => q{Cannot use the --PSQL option when NO_PSQL_OPTION is on},
+    'opt-psql-restrict'  => q{Cannot use the --PGBINDIR or --PSQL option when NO_PSQL_OPTION is on},
+    'pgagent-jobs-ok'    => q{No failed jobs},
     'pgbouncer-pool'     => q{Pool=$1 $2=$3},
     'pgb-backends-mrtg'  => q{DB=$1 Max connections=$2},
     'pgb-backends-msg'   => q{$1 of $2 connections ($3%)},
-    'pgb-backends-oknone'=> q{No connections},
+    'pgb-backends-none'  => q{No connections},
     'pgb-backends-users' => q{$1 for number of users must be a number or percentage},
-    'pgb-maxwait-msg'    => q{longest wait: $1s},
-    'pgb-nomatches'      => q{No matching rows were found},
-    'pgb-skipped'        => q{No matching rows were found (skipped rows: $1)},
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{No prepared transactions found},
@@ -205,7 +212,7 @@ our %msg = (
     'queries'            => q{queries},
     'query-time'         => q{query_time},
     'range-badcs'        => q{Invalid '$1' option: must be a checksum},
-    'range-badlock'      => q{Invalid '$1' option: must be number of locks, or "type1=#;type2=#"},
+    'range-badlock'      => q{Invalid '$1' option: must be number of locks, or "type1=#:type2=#"},
     'range-badpercent'   => q{Invalid '$1' option: must be a percentage},
     'range-badpercsize'  => q{Invalid '$1' option: must be a size or a percentage},
     'range-badsize'      => q{Invalid size for '$1' option},
@@ -272,7 +279,6 @@ our %msg = (
     'size'               => q{size},
     'slony-noschema'     => q{Could not determine the schema for Slony},
     'slony-nonumber'     => q{Call to sl_status did not return a number},
-    'slony-noparse'      => q{Could not parse call to sl_status},
     'slony-lagtime'      => q{Slony lag time: $1},
     'symlink-create'     => q{Created "$1"},
     'symlink-done'       => q{Not creating "$1": $2 already linked to "$3"},
@@ -347,6 +353,12 @@ our %msg = (
     'bloat-nomin'        => q{aucune relation n'atteint le critère minimum de fragmentation},
     'bloat-table'        => q{(db $1) table $2.$3 lignes:$4 pages:$5 devrait être:$6 ($7X) place perdue:$8 ($9)},
     'bug-report'         => q{Merci de rapporter ces d??tails ?? check_postgres@bucardo.org:},
+    'checkcluster-id'    => q{Identifiant système de la base de données :},
+    'checkcluster-msg'   => q{cluster_id : $1},
+    'checkcluster-nomrtg'=> q{Doit fournir un numéro via l'option --mrtg},
+    'checkmode-prod'     => q{en production},
+    'checkmode-recovery' => q{en restauration d'archives},
+    'checkmode-state'    => q{État de l'instance :},
     'checkpoint-baddir'  => q{data_directory invalide : "$1"},
     'checkpoint-baddir2' => q{pg_controldata n'a pas pu lire le répertoire des données indiqué : « $1 »},
     'checkpoint-badver'  => q{Échec lors de l'exécution de pg_controldata - probablement la mauvaise version ($1)},
@@ -354,11 +366,11 @@ our %msg = (
     'checkpoint-nodir'   => q{Vous devez fournir un argument --datadir ou configurer la variable d'environnement PGDATA},
     'checkpoint-nodp'    => q{Vous devez installer le module Perl Date::Parse pour utiliser l'action checkpoint},
     'checkpoint-noparse' => q{Incapable d'analyser le résultat de la commande pg_controldata : "$1"},
-    'checkpoint-noregex' => q{Échec de l'appel à pg_controldata $1},
+    'checkpoint-noregex' => q{La regex pour ce test n'a pas été trouvée},
     'checkpoint-nosys'   => q{N'a pas pu appeler pg_controldata : $1},
     'checkpoint-ok'      => q{Le dernier CHECKPOINT est survenu il y a une seconde},
     'checkpoint-ok2'     => q{Le dernier CHECKPOINT est survenu il y a $1 secondes},
-    'checkpoint-po'      => q{Heure du dernier point de contr�le :},
+    'checkpoint-po'      => q{Heure du dernier point de contrôle :},
     'checksum-msg'       => q{somme de contrôle : $1},
     'checksum-nomd'      => q{Vous devez installer le module Perl Digest::MD5 pour utiliser l'action checksum},
     'checksum-nomrtg'    => q{Vous devez fournir une somme de contrôle avec l'option --mrtg},
@@ -387,10 +399,10 @@ our %msg = (
     'hs-no-location'     => q{N'a pas pu obtenir l'emplacement courant dans le journal des transactions sur $1},
     'hs-receive-delay'   => q{délai de réception},
     'hs-replay-delay'    => q{délai de rejeu},
-'index'              => q{Index},
+    'index'              => q{Index},
     'invalid-option'     => q{Option invalide},
     'invalid-query'      => q{Une requête invalide a renvoyé : $1},
-'language'           => q{Language},
+    'language'           => q{Langage},
     'listener-msg'       => q{processus LISTEN trouvés : $1},
     'listening'          => q{en écoute},
     'locks-msg'          => q{total des verrous « $1 » : $2},
@@ -405,14 +417,17 @@ our %msg = (
     'logfile-seekfail'   => q{Échec de la recherche dans $1 : $2},
     'logfile-stderr'     => q{La sortie des traces a été redirigés stderr : merci de fournir un nom de fichier},
     'logfile-syslog'     => q{La base de données utiliser syslog, merci de spécifier le chemin avec l'option --logfile (fac=$1)},
+    'mode-standby'       => q{Serveur en mode standby},
+    'mode'               => q{mode},
     'mrtg-fail'          => q{Échec de l'action $1 : $2},
     'new-ver-nocver'     => q{N'a pas pu t??l??charger les informations de version pour $1},
     'new-ver-badver'     => q{N'a pas pu analyser les informations de version pour $1},
     'new-ver-dev'        => q{Ne peut pas comparer les versions sur des versions de d??veloppement : vous avez $1 version $2},
     'new-ver-nolver'     => q{N'a pas pu d??terminer les informations de version locale pour $1},
-    'new-ver-ok'          => q{La version $1 est la dernière pour $2},
-    'new-ver-warn'        => q{Merci de mettre à jour vers la version $1 de $2. Vous utilisez actuellement la $3},
+    'new-ver-ok'         => q{La version $1 est la dernière pour $2},
+    'new-ver-warn'       => q{Merci de mettre à jour vers la version $1 de $2. Vous utilisez actuellement la $3},
     'new-ver-tt'         => q{Votre version de $1 ($2) semble ult??rieure ?? la version courante ! ($3)},
+    'no-db'              => q{Pas de bases de données},
     'no-match-db'        => q{Aucune base de données trouvée à cause des options d'exclusion/inclusion},
     'no-match-fs'        => q{Aucun système de fichier trouvé à cause des options d'exclusion/inclusion},
     'no-match-rel'       => q{Aucune relation trouvée à cause des options d'exclusion/inclusion},
@@ -427,8 +442,12 @@ our %msg = (
     'opt-psql-noexist'   => q{Ne peut pas trouver l'exécutable psql indiqué : $1},
     'opt-psql-nofind'    => q{N'a pas pu trouver un psql exécutable},
     'opt-psql-nover'     => q{N'a pas pu déterminer la version de psql},
-    'opt-psql-restrict'  => q{Ne peut pas utiliser l'option --PSQL si NO_PSQL_OPTION est activé},
+    'opt-psql-restrict'  => q{Ne peut pas utiliser l'option --PGBINDIR ou --PSQL si NO_PSQL_OPTION est activé},
     'pgbouncer-pool'     => q{Pool=$1 $2=$3},
+    'pgb-backends-mrtg'  => q{base=$1 connexions max=$2},
+    'pgb-backends-msg'   => q{$1 connexions sur $2 ($3%)},
+    'pgb-backends-none'  => q{Aucune connection},
+    'pgb-backends-users' => q{Le nombre d'utilisateurs, $1, doit être un nombre ou un pourcentage},
     'PID'                => q{PID},
     'port'               => q{port},
     'preptxn-none'       => q{Aucune transaction préparée trouvée},
@@ -443,7 +462,7 @@ our %msg = (
     'queries'            => q{requêtes},
     'query-time'         => q{durée de la requête},
     'range-badcs'        => q{Option « $1 » invalide : doit être une somme de contrôle},
-    'range-badlock'      => q{Option « $1 » invalide : doit être un nombre de verrou ou « type1=#;type2=# »},
+    'range-badlock'      => q{Option « $1 » invalide : doit être un nombre de verrou ou « type1=#:type2=# »},
     'range-badpercent'   => q{Option « $1 » invalide : doit être un pourcentage},
     'range-badpercsize'  => q{Option « $1 » invalide : doit être une taille ou un pourcentage},
     'range-badsize'      => q{Taille invalide pour l'option « $1 »},
@@ -494,20 +513,19 @@ our %msg = (
     'runtime-badmrtg'    => q{queryname invalide ?},
     'runtime-badname'    => q{Option invalide pour queryname option : doit être le nom d'une vue},
     'runtime-msg'        => q{durée d'exécution de la requête : $1 secondes},
-'schema'             => q{Schema},
-'ss-createfile'      => q{Created file $1},
-'ss-different'       => q{"$1" is different:},
-'ss-existson'        => q{Exists on:},
+    'schema'             => q{Schéma},
+    'ss-createfile'      => q{Création du fichier $1},
+    'ss-different'       => q{"$1" est différent:},
+    'ss-existson'        => q{Existe sur :},
     'ss-failed'          => q{Les bases de données sont différentes. Éléments différents : $1},
     'ss-matched'         => q{Les bases de données ont les mêmes éléments},
-'ss-missingon'       => q{Missing on:},
-'ss-noexist'         => q{$1 "$2" does not exist on all databases:},
-'ss-notset'          => q{"$1" is not set on all databases:},
-'ss-suffix'          => q{Error: cannot use suffix unless looking at time-based schemas},
+    'ss-missingon'       => q{Manque sur :},
+    'ss-noexist'         => q{$1 "$2" n'existe pas sur toutes les bases de données :},
+    'ss-notset'          => q{"$1" n'est pas configuré sur toutes les bases de données :},
+    'ss-suffix'          => q{Erreur : ne peut pas utiliser le suffixe sauf à rechercher des schémas basés sur l'horloge},
     'size'               => q{taille},
     'slony-noschema'     => q{N'a pas pu déterminer le schéma de Slony},
     'slony-nonumber'     => q{L'appel à sl_status n'a pas renvoyé un numéro},
-    'slony-noparse'      => q{N'a pas pu analyser l'appel à sl_status},
     'slony-lagtime'      => q{Durée de lag de Slony : $1},
     'seq-die'            => q{N'a pas pu récupérer d'informations sur la séquence $1},
     'seq-msg'            => q{$1=$2% (appels restant=$3)},
@@ -519,7 +537,7 @@ our %msg = (
     'symlink-fail2'      => q{N'a pas pu supprimer le lien symbolique $1 vers $2 : $3},
     'symlink-name'       => q{Cette commande ne fonctionnera pas sauf si le programme contient le mot « postgres »},
     'symlink-unlink'     => q{Supression de « $1 » :$2 },
-'table'              => q{Table},
+    'table'              => q{Table},
     'testmode-end'       => q{FIN DU MODE DE TEST},
     'testmode-fail'      => q{Échec de la connexion : $1 $2},
     'testmode-norun'     => q{N'a pas pu exécuter « $1 » sur $2 : la version doit être supérieure ou égale à $3, mais est $4},
@@ -543,7 +561,7 @@ our %msg = (
     'time-years'         => q{années},
     'timesync-diff'      => q{diff},
     'timesync-msg'       => q{timediff=$1 Base de données=$2 Local=$3},
-'transactions'       => q{transactions},
+    'transactions'       => q{transactions},
     'trigger-msg'        => q{Triggers désactivés : $1},
     'txn-time'           => q{durée de la transaction},
     'txnidle-count-msg'  => q{Transactions en attente totales : $1},
@@ -561,15 +579,15 @@ our %msg = (
     'unknown-error'      => q{erreur inconnue},
     'usage'              => qq{\nUsage: \$1 <options>\n Essayez « \$1 --help » pour liste complète des options\n\n},
     'username'           => q{nom utilisateur},
-'user'               => q{User},
+    'user'               => q{Utilisateur},
     'vac-nomatch-a'      => q{Aucune des tables correspondantes n'a eu d'opération ANALYZE},
     'vac-nomatch-v'      => q{Aucune des tables correspondantes n'a eu d'opération VACUUM},
     'version'            => q{version $1},
     'version-badmrtg'    => q{Argument invalide pour la version de mrtg},
     'version-fail'       => q{version $1, alors que la version attendue est $2},
     'version-ok'         => q{version $1},
-'wal-numfound'       => q{WAL files found: $1},
-'wal-numfound2'      => q{WAL "$2" files found: $1},
+    'wal-numfound'       => q{Fichiers WAL trouvés : $1},
+    'wal-numfound2'      => q{Fichiers WAL "$2" trouvés : $1},
 },
 'af' => {
 },
@@ -708,6 +726,10 @@ JOIN pg_user u ON (u.usesysid = n.nspowner)},
 SELECT l.*, lanname AS name, quote_ident(usename) AS owner
 FROM pg_language l
 JOIN pg_user u ON (u.usesysid = l.lanowner)},
+        SQL2       => q{
+SELECT l.*, lanname AS name
+FROM pg_language l
+    },
     },
     type => {
         SQL       => q{
@@ -722,7 +744,8 @@ WHERE t.typtype NOT IN ('b','c')},
     sequence => {
         SQL       => q{
 SELECT c.*, nspname||'.'||relname AS name, quote_ident(usename) AS owner,
-  quote_ident(relname) AS safename, quote_ident(nspname) AS schema
+  (quote_ident(nspname)||'.'||quote_ident(relname)) AS safename,
+quote_ident(nspname) AS schema
 FROM pg_class c
 JOIN pg_user u ON (u.usesysid = c.relowner)
 JOIN pg_namespace n ON (n.oid = c.relnamespace)
@@ -885,7 +908,7 @@ if (defined $rcfile) {
             $name = "dbname$1";
         }
         elsif ($name =~ /^u(\d+)$/o) {
-            $name = 'dbuser$1';
+            $name = "dbuser$1";
         }
 
         ## These options are multiples ('@s')
@@ -922,6 +945,7 @@ GetOptions(
     'debugoutput=s',
     'no-check_postgresrc',
     'assume-standby-mode',
+    'assume-prod',
 
     'action=s',
     'warning=s',
@@ -938,6 +962,7 @@ GetOptions(
     'dbpass|dbpass1=s@',
     'dbservice|dbservice1=s@',
 
+    'PGBINDIR=s',
     'PSQL=s',
 
     'tempdir=s',
@@ -955,6 +980,7 @@ GetOptions(
     'schema=s@',   ## used by slony_status only
     'filter=s@',   ## used by same_schema only
     'suffix=s',    ## used by same_schema only
+    'replace',     ## used by same_schema only
 );
 
 die $USAGE if ! keys %opt and ! @ARGV;
@@ -1102,6 +1128,7 @@ our $action_info = {
  backends            => [1, 'Number of connections, compared to max_connections.'],
  bloat               => [0, 'Check for table and index bloat.'],
  checkpoint          => [1, 'Checks how long since the last checkpoint'],
+ cluster_id          => [1, 'Checks the Database System Identifier'],
  commitratio         => [0, 'Report if the commit ratio of a database is too low.'],
  connection          => [0, 'Simple connection check.'],
  custom_query        => [0, 'Run a custom query.'],
@@ -1138,6 +1165,7 @@ our $action_info = {
  pgb_pool_maxwait    => [1, 'Check the current maximum wait time for client connections in pgbouncer pools.'],
  pgbouncer_backends  => [0, 'Check how many clients are connected to pgbouncer compared to max_client_conn.'],
  pgbouncer_checksum  => [0, 'Check that no pgbouncer settings have changed since the last check.'],
+ pgagent_jobs        => [0, 'Check for no failed pgAgent jobs within a specified period of time.'],
  prepared_txns       => [1, 'Checks number and age of prepared transactions.'],
  query_runtime       => [0, 'Check how long a specific query takes to run.'],
  query_time          => [1, 'Checks the maximum running time of current queries.'],
@@ -1192,7 +1220,9 @@ Limit options:
 
 Other options:
   --assume-standby-mode assume that server in continious WAL recovery mode
-  --PSQL=FILE           location of the psql executable; avoid using if possible
+  --assume-prod         assume that server in production mode
+  --PGBINDIR=PATH       path of the postgresql binaries; avoid using if possible
+  --PSQL=FILE           (deprecated) location of the psql executable; avoid using if possible
   -v, --verbose         verbosity level; can be used more than once to increase the level
   -h, --help            display this help information
   --man                 display the full manual
@@ -1236,15 +1266,15 @@ if ($opt{showtime}) {
     }
 }
 
-## Check the current database mode
-our $STANDBY = 0;
-check_standby_mode() if $opt{'assume-standby-mode'};
-
 ## We don't (usually) want to die, but want a graceful Nagios-like exit instead
 sub ndie {
     eval { File::Temp::cleanup(); };
     my $msg = shift;
     chomp $msg;
+    ## If this message already starts with an ERROR, filter that out for prettiness
+    $msg =~ s/^\s*ERROR:\s*/ /;
+    ## Trim whitespace
+    $msg =~ s/^\s*(.+)\s*$/$1/;
     print "ERROR: $msg\n";
     exit 3;
 }
@@ -1294,20 +1324,28 @@ sub msg_en {
 
 ## Everything from here on out needs psql, so find and verify a working version:
 if ($NO_PSQL_OPTION) {
-    delete $opt{PSQL} and ndie msg('opt-psql-restrict');
+    (delete $opt{PGBINDIR} or delete $opt{PSQL}) and ndie msg('opt-psql-restrict');
 }
-
-if (! defined $PSQL or ! length $PSQL) {
-    if (exists $opt{PSQL}) {
-        $PSQL = $opt{PSQL};
-        $PSQL =~ m{^/[\w\d\/]*psql$} or ndie msg('opt-psql-badpath');
-        -e $PSQL or ndie msg('opt-psql-noexist', $PSQL);
+if (! defined $PGBINDIR or ! length $PGBINDIR) {
+    if (defined $ENV{PGBINDIR} and length $ENV{PGBINDIR}){
+        $PGBINDIR = $ENV{PGBINDIR};
+    }
+    elsif (defined $opt{PGBINDIR} and length $opt{PGBINDIR}){
+        $PGBINDIR = $opt{PGBINDIR};
     }
     else {
-        my $psql = $ENV{PGBINDIR} ? "$ENV{PGBINDIR}/psql" : 'psql';
-        chomp($PSQL = qx{which $psql});
-        $PSQL or ndie msg('opt-psql-nofind');
+        undef $PGBINDIR;
     }
+}
+if (exists $opt{PSQL}) {
+    $PSQL = $opt{PSQL};
+    $PSQL =~ m{^/[\w\d\/]*psql$} or ndie msg('opt-psql-badpath');
+    -e $PSQL or ndie msg('opt-psql-noexist', $PSQL);
+}
+else {
+    my $psql = (defined $PGBINDIR) ? "$PGBINDIR/psql" : 'psql';
+    chomp($PSQL = qx{which "$psql"});
+    $PSQL or ndie msg('opt-psql-nofind');
 }
 -x $PSQL or ndie msg('opt-psql-noexec', $PSQL);
 $res = qx{$PSQL --version};
@@ -1318,6 +1356,12 @@ $VERBOSE >= 2 and warn qq{psql=$PSQL version=$psql_version\n};
 
 $opt{defaultdb} = $psql_version >= 8.0 ? 'postgres' : 'template1';
 $opt{defaultdb} = 'pgbouncer' if $action =~ /^pgb/;
+
+## Check the current database mode
+our $STANDBY = 0;
+our $MASTER = 0;
+make_sure_standby_mode() if $opt{'assume-standby-mode'};
+make_sure_prod() if $opt{'assume-prod'};
 
 ## Create the list of databases we are going to connect to
 my @targetdb = setup_target_databases();
@@ -1348,9 +1392,11 @@ sub add_response {
 
         ## Pretty display of what exactly those numbers mean!
         my $number = 0;
+        my $historical = 0;
         for my $row (@targetdb) {
             $number++;
             if (exists $row->{filename}) {
+                $historical = 1;
                 $same_schema_header .= sprintf "\nDB %s: File=%s\nDB %s: %s: %s  %s: %s",
                     $number,
                     $row->{filename},
@@ -1360,8 +1406,9 @@ sub add_response {
                     'CP version',
                     $row->{cversion};
             }
-            $same_schema_header .= sprintf "\nDB %s: %s%s%s%s",
+            $same_schema_header .= sprintf "\nDB %s: %s%s%s%s%s",
                 $number,
+                defined $row->{dbservice} ? qq{dbservice=$row->{dbservice} } : '',
                 defined $row->{port} ? qq{port=$row->{port} } : '',
                 defined $row->{host} ? qq{host=$row->{host} } : '',
                 defined $row->{dbname} ? qq{dbname=$row->{dbname} } : '',
@@ -1372,22 +1419,22 @@ sub add_response {
 
         ## Databases
         $number = 1;
-        my %dlist = map { $_->{dbname}, $number++; } @targetdb;
-        if (keys %dlist > 1) {
+        my %dlist = map { ($_->{dbname} || ''), $number++; } @targetdb;
+        if (keys %dlist > 1 and ! $historical) {
             my $dblist = join ',' => sort { $dlist{$a} <=> $dlist{$b} } keys %dlist;
             $dbname = qq{ (databases:$dblist)};
         }
         ## Hosts
         $number = 1;
-        my %hostlist = map { $_->{host}, $number++; } @targetdb;
-        if (keys %hostlist > 1) {
+        my %hostlist = map { ($_->{host} || ''), $number++; } @targetdb;
+        if (keys %hostlist > 1 and ! $historical) {
             my $dblist = join ',' => sort { $hostlist{$a} <=> $hostlist{$b} } keys %hostlist;
             $dbhost = qq{ (hosts:$dblist)};
         }
         ## Ports
         $number = 1;
-        my %portlist = map { $_->{port}, $number++; } @targetdb;
-        if (keys %portlist > 1) {
+        my %portlist = map { ($_->{port} || ''), $number++; } @targetdb;
+        if (keys %portlist > 1 and ! $historical) {
             my $dblist = join ',' => sort { $portlist{$a} <=> $portlist{$b} } keys %portlist;
             $dbport = qq{ (ports:$dblist)};
         }
@@ -1504,74 +1551,83 @@ sub do_mrtg_stats {
     do_mrtg({one => $one, two => $two, msg => $msg});
 }
 
-sub check_standby_mode {
+sub make_sure_mode_is {
 
-    ## Checks if database in standby mode
     ## Requires $ENV{PGDATA} or --datadir
-
-    ## Find the data directory, make sure it exists
-    my $dir = $opt{datadir} || $ENV{PGDATA};
-
-    if (!defined $dir or ! length $dir) {
-        ndie msg('checkpoint-nodir');
-    }
-
-    if (! -d $dir) {
-        ndie msg('checkpoint-baddir', $dir);
-    }
 
     $db->{host} = '<none>';
 
     ## Run pg_controldata, grab the mode
-    my $pgc
-        = $ENV{PGCONTROLDATA} ? $ENV{PGCONTROLDATA}
-        : $ENV{PGBINDIR}      ? "$ENV{PGBINDIR}/pg_controldata"
-        :                       'pg_controldata';
-    $COM = qq{$pgc "$dir"};
-    eval {
-        $res = qx{$COM 2>&1};
-    };
-    if ($@) {
-        ndie msg('checkpoint-nosys', $@);
-    }
-
-    ## If the path is echoed back, we most likely have an invalid data dir
-    if ($res =~ /$dir/) {
-        ndie msg('checkpoint-baddir2', $dir);
-    }
-
-    if ($res =~ /WARNING: Calculated CRC checksum/) {
-        ndie msg('checkpoint-badver');
-    }
-    if ($res !~ /^pg_control.+\d+/) {
-        ndie msg('checkpoint-badver2');
-    }
+    $res = open_controldata();
 
     my $regex = msg('checkmode-state');
     if ($res !~ /$regex\s*(.+)/) { ## no critic (ProhibitUnusedCapture)
         ## Just in case, check the English one as well
         $regex = msg_en('checkmode-state');
         if ($res !~ /$regex\s*(.+)/) {
-            ndie msg('checkpoint-noregex', $dir);
+            ndie msg('checkpoint-noregex');
         }
     }
     my $last = $1;
-    $regex = msg('checkmode-recovery');
+
+    return $last;
+
+}
+
+sub make_sure_standby_mode {
+
+    ## Checks if database in standby mode
+    ## Requires $ENV{PGDATA} or --datadir
+
+    my $last = make_sure_mode_is();
+
+    my $regex = msg('checkmode-recovery');
     if ($last =~ /$regex/) {
         $STANDBY = 1;
     }
 
     return;
 
-} ## end of check_standby_mode
+} ## end of make_sure_standby_mode
 
+sub make_sure_prod {
+
+    ## Checks if database in production mode
+    ## Requires $ENV{PGDATA} or --datadir
+
+    my $last = make_sure_mode_is();
+
+    my $regex = msg('checkmode-prod');
+    if ($last =~ /$regex/) {
+        $MASTER = 1;
+    }
+
+    return;
+
+} ## end of make_sure_production_mode
 
 sub finishup {
 
     ## Final output
     ## These are meant to be compact and terse: sometimes messages go to pagers
 
-    $MRTG and do_mrtg_stats();
+    if ($MRTG) {
+        ## Try hard to ferret out a message in case we short-circuited here
+        my $msg = [[]];
+        if (keys %critical) {
+            ($msg) = values %critical;
+        }
+        elsif (keys %warning) {
+            ($msg) = values %warning;
+        }
+        elsif (keys %ok) {
+            ($msg) = values %ok;
+        }
+        elsif (keys %unknown) {
+            ($msg) = values %unknown;
+        }
+        do_mrtg_stats($msg->[0][0]);
+    }
 
     $action =~ s/^\s*(\S+)\s*$/$1/;
     my $service = sprintf "%s$action", $FANCYNAME ? 'postgres_' : '';
@@ -1597,7 +1653,7 @@ sub finishup {
                 or ($DEBUGOUTPUT =~ /u/io and $type eq 'u');
         }
         for (sort keys %$info) {
-            printf "%s %s%s ",
+            printf '%s %s%s ',
                 $_,
                 $showdebug ? "[DEBUG: $DEBUG_INFO] " : '',
                 join $SEP => map { $_->[0] } @{$info->{$_}};
@@ -1672,8 +1728,7 @@ our %testaction = (
                   sequence          => 'VERSION: 8.1',
                   table_size        => 'VERSION: 8.1',
                   index_size        => 'VERSION: 8.1',
-                  query_time        => 'VERSION: 8.3',
-                  txn_idle          => 'VERSION: 8.3',
+                  query_time        => 'VERSION: 8.1',
                   txn_time          => 'VERSION: 8.3',
                   wal_files         => 'VERSION: 8.1',
                   archive_ready     => 'VERSION: 8.1',
@@ -1906,6 +1961,9 @@ check_dbstats() if $action eq 'dbstats';
 ## Check how long since the last checkpoint
 check_checkpoint() if $action eq 'checkpoint';
 
+## Check the Database System Identifier
+check_cluster_id() if $action eq 'cluster_id';
+
 ## Check for disabled triggers
 check_disabled_triggers() if $action eq 'disabled_triggers';
 
@@ -1944,6 +2002,8 @@ check_pgb_pool('maxwait') if $action eq 'pgb_pool_maxwait';
 
 ## Check how many clients are connected to pgbouncer compared to max_client_conn.
 check_pgbouncer_backends() if $action eq 'pgbouncer_backends';
+
+check_pgagent_jobs() if $action eq 'pgagent_jobs';
 
 ##
 ## Everything past here does not hit a Postgres database
@@ -2112,7 +2172,7 @@ sub run_command {
     ## "timeout" - change the timeout from the default of $opt{timeout}
     ## "regex" - the query must match this or we throw an error
     ## "emptyok" - it's okay to not match any rows at all
-    ## "version" - alternate versions for different versions
+    ## "version" - alternate SQL for different versions of Postgres
     ## "dbnumber" - connect with this specific entry from @targetdb
     ## "conninfo" - return the connection information string without doing anything
 
@@ -2374,31 +2434,31 @@ sub run_command {
 
             ## Transform psql output into an arrayref of hashes
             my @stuff;
-            my $num = 0;
+            my $lnum = 0;
             my $lastval;
             for my $line (split /\n/ => $db->{slurp}) {
 
                 if (index($line,'-')==0) {
-                    $num++;
+                    $lnum++;
                     next;
                 }
                 if ($line =~ /^([\?\w]+)\s+\| (.*)/) {
-                    $stuff[$num]{$1} = $2;
+                    $stuff[$lnum]{$1} = $2;
                     $lastval = $1;
                 }
                 elsif ($line =~ /^QUERY PLAN\s+\| (.*)/) {
-                    $stuff[$num]{queryplan} = $1;
+                    $stuff[$lnum]{queryplan} = $1;
                     $lastval = 'queryplan';
                 }
                 elsif ($line =~ /^\s+: (.*)/) {
-                    $stuff[$num]{$lastval} .= "\n$1";
+                    $stuff[$lnum]{$lastval} .= "\n$1";
                 }
                 elsif ($line =~ /^\s+\| (.+)/) {
-                    $stuff[$num]{$lastval} .= "\n$1";
+                    $stuff[$lnum]{$lastval} .= "\n$1";
                 }
                 ## No content: can happen in the source of functions, for example
                 elsif ($line =~ /^\s+\|\s+$/) {
-                    $stuff[$num]{$lastval} .= "\n";
+                    $stuff[$lnum]{$lastval} .= "\n";
                 }
                 else {
                     my $msg = msg('no-parse-psql');
@@ -2417,8 +2477,8 @@ sub run_command {
                     if (! $opt{stop_looping}) {
                         ## Just in case...
                         $opt{stop_looping} = 1;
-                        my $info = run_command('SELECT version() AS version');
-                        (my $v = $info->{db}[0]{slurp}[0]{version}) =~ s/(\w+ \S+).+/$1/;
+                        my $linfo = run_command('SELECT version() AS version');
+                        (my $v = $linfo->{db}[0]{slurp}[0]{version}) =~ s/(\w+ \S+).+/$1/;
                         warn "Postgres version: $v\n";
                     }
                     exit 1;
@@ -2454,7 +2514,7 @@ sub run_command {
 sub setup_target_databases {
 
     ## Build a list of all databases to connect to.
-    ## Returns a list of all such databases with conenction information:
+    ## Returns a list of all such databases with connection information:
     ## -- dbuser, --dbpass, --dbservice, --port, --dbname, --host
     ##
     ## Items are determined by host, port, and db arguments
@@ -2477,7 +2537,7 @@ sub setup_target_databases {
     ## --host=a,b --host=x --port=5432,5433 --dbuser=alice --dbuser=bob --db=baz
     ## Connects three times: a-5432-alice-baz b-5433-alice-baz x-5433-bob-baz
 
-    ## Returns a list of targets as as hashref
+    ## Returns a list of targets as a hashref
 
     my $arg = shift || {};
 
@@ -2786,7 +2846,7 @@ sub validate_range {
                 ndie msg('range-seconds', 'critical')
             }
             $critical = $1;
-            if (length $warning and $warning > $critical) {
+            if (!$arg->{any_warning} and length $warning and $warning > $critical) {
                 ndie msg('range-warnbigtime', $warning, $critical);
             }
         }
@@ -2797,7 +2857,7 @@ sub validate_range {
         if (! length $critical and ! length $warning) {
             ndie msg('range-notime');
         }
-        if (length $warning and length $critical and $warning > $critical) {
+        if (!$arg->{any_warning} and length $warning and length $critical and $warning > $critical) {
             ndie msg('range-warnbigtime', $warning, $critical);
         }
     }
@@ -2825,7 +2885,7 @@ sub validate_range {
                 ndie msg('range-badsize', 'warning');
             }
             $warning = size_in_bytes($1,$2);
-            if (length $critical and $warning > $critical) {
+            if (!$arg->{any_warning} and length $critical and $warning > $critical) {
                 ndie msg('range-warnbigsize', $warning, $critical);
             }
         }
@@ -2860,8 +2920,10 @@ sub validate_range {
             ) {
             ndie msg('range-warnbig');
         }
-        $warning = int $warning if length $warning;
-        $critical = int $critical if length $critical;
+        if ($type !~ /string/) {
+            $warning = int $warning if length $warning;
+            $critical = int $critical if length $critical;
+        }
     }
     elsif ('restringex' eq $type) {
         if (! length $critical and ! length $warning) {
@@ -3101,6 +3163,58 @@ sub perfname {
 } ## end of perfname;
 
 
+sub open_controldata {
+    ## Requires $ENV{PGDATA} or --datadir
+
+    ## Find the data directory, make sure it exists
+    my $dir = $opt{datadir} || $ENV{PGDATA};
+
+    if (!defined $dir or ! length $dir) {
+        ndie msg('checkpoint-nodir');
+    }
+
+    if (! -d $dir) {
+        ndie msg('checkpoint-baddir', $dir);
+    }
+
+    ## Run pg_controldata
+    ## We still catch deprecated option
+    my $pgc;
+    if (defined $ENV{PGCONTROLDATA} and length $ENV{PGCONTROLDATA}) {
+        # ndie msg('depr-pgcontroldata');
+        $pgc = "$ENV{PGCONTROLDATA}";
+    }
+    else {
+        $pgc = (defined $PGBINDIR) ? "$PGBINDIR/pg_controldata" : 'pg_controldata';
+        chomp($pgc = qx{which "$pgc"});
+    }
+    -x $pgc or ndie msg('opt-psql-noexec', $pgc);
+
+    $COM = qq{$pgc "$dir"};
+    eval {
+        $res = qx{$COM 2>&1};
+    };
+    if ($@) {
+        ndie msg('checkpoint-nosys', $@);
+    }
+
+    ## If the path is echoed back, we most likely have an invalid data dir
+    if ($res =~ /$dir/) {
+        ndie msg('checkpoint-baddir2', $dir);
+    }
+
+    if ($res =~ /WARNING: Calculated CRC checksum/) {
+        ndie msg('checkpoint-badver', $dir);
+    }
+    if ($res !~ /^pg_control.+\d+/) {
+        ndie msg('checkpoint-badver2');
+    }
+
+    ## return the pg_controldata output
+    return $res;
+}
+
+
 sub check_archive_ready {
 
     ## Check on the number of WAL archive with status "ready"
@@ -3245,7 +3359,9 @@ LEFT JOIN pg_stat_activity s ON (s.datid = d.oid) $NOIDLE
 GROUP BY 2,3
 ORDER BY datname
 };
-    my $info = run_command($SQL, {regex => qr{\d+}, fatalregex => 'too many clients' } );
+    my $SQL92;
+    ($SQL92 = $SQL) =~ s/current_query <> '<IDLE>'/state <> 'idle'/g;
+    my $info = run_command($SQL, {regex => qr{\d+}, fatalregex => 'too many clients', version => [">9.1 $SQL92"] } );
 
     $db = $info->{db}[0];
 
@@ -3413,15 +3529,28 @@ SELECT
   ROUND(CASE WHEN iotta=0 OR ipages=0 OR ipages=iotta THEN 0.0 ELSE ipages/iotta::numeric END,1) AS ibloat,
   CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END AS wastedipages,
   CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta) END AS wastedibytes,
-  CASE WHEN ipages < iotta THEN '0 bytes' ELSE (bs*(ipages-iotta))::bigint || ' bytes' END AS wastedisize
+  CASE WHEN ipages < iotta THEN '0 bytes' ELSE (bs*(ipages-iotta))::bigint || ' bytes' END AS wastedisize,
+  CASE WHEN relpages < otta THEN
+    CASE WHEN ipages < iotta THEN 0 ELSE ipages-iotta::bigint END
+    ELSE CASE WHEN ipages < iotta THEN relpages-otta::bigint
+      ELSE relpages-otta::bigint + ipages-iotta::bigint END
+  END AS totalwastedbytes
 FROM (
   SELECT
-    schemaname, tablename, cc.reltuples, cc.relpages, bs,
-    CEIL((cc.reltuples*((datahdr+ma-
-      (CASE WHEN datahdr%ma=0 THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)) AS otta,
+    nn.nspname AS schemaname,
+    cc.relname AS tablename,
+    COALESCE(cc.reltuples,0) AS reltuples,
+    COALESCE(cc.relpages,0) AS relpages,
+    COALESCE(bs,0) AS bs,
+    COALESCE(CEIL((cc.reltuples*((datahdr+ma-
+      (CASE WHEN datahdr%ma=0 THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)),0) AS otta,
     COALESCE(c2.relname,'?') AS iname, COALESCE(c2.reltuples,0) AS ituples, COALESCE(c2.relpages,0) AS ipages,
     COALESCE(CEIL((c2.reltuples*(datahdr-12))/(bs-20::float)),0) AS iotta -- very rough approximation, assumes all cols
-  FROM (
+  FROM
+     pg_class cc
+  JOIN pg_namespace nn ON cc.relnamespace = nn.oid AND nn.nspname <> 'information_schema'
+  LEFT JOIN
+  (
     SELECT
       ma,bs,schemaname,tablename,
       (datawidth+(hdr+ma-(case when hdr%ma=0 THEN ma ELSE hdr%ma END)))::numeric AS datahdr,
@@ -3447,8 +3576,7 @@ FROM (
       GROUP BY 1,2,3,4,5
     ) AS foo
   ) AS rs
-  JOIN pg_class cc ON cc.relname = rs.tablename
-  JOIN pg_namespace nn ON cc.relnamespace = nn.oid AND nn.nspname = rs.schemaname AND nn.nspname <> 'information_schema'
+  ON cc.relname = rs.tablename AND nn.nspname = rs.schemaname
   LEFT JOIN pg_index i ON indrelid = cc.oid
   LEFT JOIN pg_class c2 ON c2.oid = i.indexrelid
 ) AS sml
@@ -3456,10 +3584,10 @@ FROM (
 
     if (! defined $opt{include} and ! defined $opt{exclude}) {
         $SQL .= " WHERE sml.relpages - otta > $MINPAGES OR ipages - iotta > $MINIPAGES";
-        $SQL .= " ORDER BY wastedbytes DESC LIMIT $LIMIT";
+        $SQL .= " ORDER BY totalwastedbytes DESC LIMIT $LIMIT";
     }
     else {
-        $SQL .= ' ORDER BY wastedbytes DESC';
+        $SQL .= ' ORDER BY totalwastedbytes DESC';
     }
 
     if ($psql_version <= 7.4) {
@@ -3614,7 +3742,6 @@ FROM (
 
 } ## end of check_bloat
 
-
 sub check_checkpoint {
 
     ## Checks how long in seconds since the last checkpoint on a WAL slave
@@ -3627,6 +3754,9 @@ sub check_checkpoint {
     ## may make more sense on the master, or we may want to look at
     ## the WAL segments received/processed instead of the checkpoint
     ## timestamp.
+    ## This check can use the optional --assume-standby-mode or
+    ## --assume-prod: if the mode found is not the mode assumed, a
+    ## CRITICAL is emitted.
 
     ## Supports: Nagios, MRTG
     ## Warning and critical are seconds
@@ -3639,50 +3769,17 @@ sub check_checkpoint {
           forcemrtg         => 1,
     });
 
-    ## Find the data directory, make sure it exists
-    my $dir = $opt{datadir} || $ENV{PGDATA};
-
-    if (!defined $dir or ! length $dir) {
-        ndie msg('checkpoint-nodir');
-    }
-
-    if (! -d $dir) {
-        ndie msg('checkpoint-baddir', $dir);
-    }
-
     $db->{host} = '<none>';
 
     ## Run pg_controldata, grab the time
-    my $pgc
-        = $ENV{PGCONTROLDATA} ? $ENV{PGCONTROLDATA}
-        : $ENV{PGBINDIR}      ? "$ENV{PGBINDIR}/pg_controldata"
-        :                       'pg_controldata';
-    $COM = qq{$pgc "$dir"};
-    eval {
-        $res = qx{$COM 2>&1};
-    };
-    if ($@) {
-        ndie msg('checkpoint-nosys', $@);
-    }
-
-    ## If the path is echoed back, we most likely have an invalid data dir
-    if ($res =~ /$dir/) {
-        ndie msg('checkpoint-baddir2', $dir);
-    }
-
-    if ($res =~ /WARNING: Calculated CRC checksum/) {
-        ndie msg('checkpoint-badver', $pgc);
-    }
-    if ($res !~ /^pg_control.+\d+/) {
-        ndie msg('checkpoint-badver2');
-    }
+    $res = open_controldata();
 
     my $regex = msg('checkpoint-po');
     if ($res !~ /$regex\s*(.+)/) { ## no critic (ProhibitUnusedCapture)
         ## Just in case, check the English one as well
         $regex = msg_en('checkpoint-po');
         if ($res !~ /$regex\s*(.+)/) {
-            ndie msg('checkpoint-noregex', $dir);
+            ndie msg('checkpoint-noregex');
         }
     }
     my $last = $1;
@@ -3704,11 +3801,35 @@ sub check_checkpoint {
     $db->{perf} = sprintf '%s=%s;%s;%s',
         perfname(msg('age')), $diff, $warning, $critical;
 
+    my $mode = '';
+    if ($STANDBY) {
+        $mode = 'STANDBY';
+    }
+    if ($MASTER) {
+        $mode = 'MASTER';
+    }
+
+    ## If we have an assume flag, then honor it.
+    my $goodmode = 1;
+    if ($opt{'assume-standby-mode'} and not $STANDBY) {
+        $goodmode = 0;
+        $mode = 'NOT STANDBY';
+    }
+    elsif ($opt{'assume-prod'} and not $MASTER) {
+        $goodmode = 0;
+        $mode = 'NOT MASTER';
+    }
+
+    if (length($mode) > 0) {
+        $db->{perf} .= sprintf ' %s=%s',
+            perfname(msg('mode')), $mode;
+    }
+
     if ($MRTG) {
         do_mrtg({one => $diff, msg => $msg});
     }
 
-    if (length $critical and $diff >= $critical) {
+    if ((length $critical and $diff >= $critical) or not $goodmode) {
         add_critical $msg;
         return;
     }
@@ -3723,6 +3844,58 @@ sub check_checkpoint {
     return;
 
 } ## end of check_checkpoint
+
+
+sub check_cluster_id {
+
+
+    ## Verify the Database System Identifier provided by pg_controldata
+    ## Supports: Nagios, MRTG
+    ## One of warning or critical must be given (but not both)
+    ## It should run one time to find out the expected cluster-id
+    ## You can use --critical="0" to find out the current cluster-id
+    ## You can include or exclude settings as well
+    ## Example:
+    ##  check_postgres_cluster_id --critical="5633695740047915125"
+
+    my ($warning, $critical) = validate_range({type => 'integer_string', onlyone => 1});
+
+    $db->{host} = '<none>';
+
+    ## Run pg_controldata, grab the cluster-id
+    $res = open_controldata();
+
+    my $regex = msg('checkcluster-id');
+    if ($res !~ /$regex\s*(.+)/) { ## no critic (ProhibitUnusedCapture)
+        ## Just in case, check the English one as well
+        $regex = msg_en('checkcluster-id');
+        if ($res !~ /$regex\s*(.+)/) {
+            ndie msg('checkpoint-noregex');
+        }
+    }
+    my $ident = $1;
+
+    my $msg = msg('checkcluster-msg', $ident);
+    if ($MRTG) {
+        $opt{mrtg} or ndie msg('checksum-nomrtg');
+        do_mrtg({one => $opt{mrtg} eq $ident ? 1 : 0, msg => $ident});
+    }
+    if ($critical and $critical ne $ident) {
+        add_critical $msg;
+    }
+    elsif ($warning and $warning ne $ident) {
+        add_warning $msg;
+    }
+    elsif (!$critical and !$warning) {
+        add_unknown $msg;
+    }
+    else {
+        add_ok $msg;
+    }
+
+    return;
+
+} ## end of check_cluster_id
 
 
 sub check_commitratio {
@@ -3827,23 +4000,25 @@ sub check_connection {
 
     my $info = run_command('SELECT version() AS v');
 
-    $db = $info->{db}[0];
+    for $db (@{$info->{db}}) {
 
-    if (exists $info->{fatal}) {
-        $MRTG and do_mrtg({one => 0});
-        add_critical $db->{error};
-        return;
-    }
+        my $err = $db->{error} || '';
+        if ($err =~ /FATAL/) {
+            $MRTG and do_mrtg({one => 0});
+            add_critical $db->{error};
+            return;
+        }
 
-    my $ver = ($db->{slurp}[0]{v} =~ /(\d+\.\d+\S+)/o) ? $1 : '';
+        my $ver = ($db->{slurp}[0]{v} =~ /(\d+\.\d+\S+)/o) ? $1 : '';
 
-    $MRTG and do_mrtg({one => $ver ? 1 : 0});
+        $MRTG and do_mrtg({one => $ver ? 1 : 0});
 
-    if ($ver) {
-        add_ok msg('version', $ver);
-    }
-    else {
-        add_unknown msg('invalid-query', $db->{slurp}[0]{v});
+        if ($ver) {
+            add_ok msg('version', $ver);
+        }
+        else {
+            add_unknown msg('invalid-query', $db->{slurp}[0]{v});
+        }
     }
 
     return;
@@ -3877,7 +4052,7 @@ sub check_custom_query {
 
         my $goodrow = 0;
 
-        ## The other column tells is the name to use as the perfdata value
+        ## The other column tells it the name to use as the perfdata value
         my $perfname;
 
         for my $r (@{$db->{slurp}}) {
@@ -3958,7 +4133,7 @@ SELECT pg_database_size(d.oid) AS dsize,
   datname,
   usename
 FROM pg_database d
-JOIN pg_user u ON (u.usesysid=d.datdba)$USERWHERECLAUSE
+LEFT JOIN pg_user u ON (u.usesysid=d.datdba)$USERWHERECLAUSE
 };
     if ($opt{perflimit}) {
         $SQL .= " ORDER BY 1 DESC LIMIT $opt{perflimit}";
@@ -4051,7 +4226,7 @@ sub check_dbstats {
 };
     }
     $SQL .= q{ FROM pg_stat_database};
-    (my $SQL2 = $SQL) =~ s/AS seq_tup_read/AS seq_tup_read, tup_returned AS ret, tup_fetched AS fetch, tup_inserted AS ins, tup_updated AS upd, tup_deleted AS del/;
+    (my $SQL2 = $SQL) =~ s/AS seqtupread/AS seqtupread, tup_returned AS ret, tup_fetched AS fetch, tup_inserted AS ins, tup_updated AS upd, tup_deleted AS del/;
 
     my $info = run_command($SQL, {regex => qr{\w}, version => [ ">8.2 $SQL2" ] } );
 
@@ -4184,7 +4359,10 @@ FROM pg_tablespace
 WHERE spclocation <> ''
 };
 
-    my $info = run_command($SQL);
+    my $SQL92;
+    ($SQL92 = $SQL) =~ s/spclocation/pg_tablespace_location(oid)/g;
+
+    my $info = run_command($SQL, {version => [">9.1 $SQL92"]});
 
     my %dir; ## 1 = normal 2 = been checked -1 = does not exist
     my %seenfs;
@@ -4572,7 +4750,7 @@ sub check_hot_standby_delay {
     if (1 == $slave) {
         ($slave, $master) = (2, 1);
         for my $k (qw(host port dbname dbuser dbpass)) {
-            ($opt{$k}, $opt{$k . 2}) = ($opt{$k . 2}, $opt{$k});
+            ($opt{$k}, $opt{$k . 2}) = ($opt{$k . 2}, $opt{$k}); ## no critic (ProhibitMismatchedOperators)
         }
     }
 
@@ -4587,7 +4765,7 @@ sub check_hot_standby_delay {
         next if ! defined $location;
 
         my ($x, $y) = split(/\//, $location);
-        $moffset = (hex("ffffffff") * hex($x)) + hex($y);
+        $moffset = (hex('ff000000') * hex($x)) + hex($y);
         $saved_db = $db if ! defined $saved_db;
     }
 
@@ -4607,12 +4785,12 @@ sub check_hot_standby_delay {
 
         if (defined $receive) {
             my ($a, $b) = split(/\//, $receive);
-            $s_rec_offset = (hex("ffffffff") * hex($a)) + hex($b);
+            $s_rec_offset = (hex('ff000000') * hex($a)) + hex($b);
         }
 
         if (defined $replay) {
             my ($a, $b) = split(/\//, $replay);
-            $s_rep_offset = (hex("ffffffff") * hex($a)) + hex($b);
+            $s_rep_offset = (hex('ff000000') * hex($a)) + hex($b);
         }
 
         $saved_db = $db if ! defined $saved_db;
@@ -4630,7 +4808,11 @@ sub check_hot_standby_delay {
 
     $MRTG and do_mrtg({one => $rep_delta, two => $rec_delta});
 
+<<<<<<< HEAD
     $db->{perf} = sprintf '%s=%s;%s;%s ',
+=======
+    $db->{perf} = sprintf ' %s=%s;%s;%s ',
+>>>>>>> master
         perfname(msg('hs-replay-delay')), $rep_delta, $warning, $critical;
     $db->{perf} .= sprintf ' %s=%s;%s;%s',
         perfname(msg('hs-receive-delay')), $rec_delta, $warning, $critical;
@@ -4766,7 +4948,7 @@ FROM (SELECT nspname, relname, $criteria AS v
             add_unknown (
                 $found ? $type eq 'vacuum' ? msg('vac-nomatch-v')
                 : msg('vac-nomatch-a')
-                : msg('no-match-table')
+                : msg('no-match-table') ## no critic (RequireTrailingCommaAtNewline)
             );
         }
         elsif ($maxtime < 0) {
@@ -4846,7 +5028,7 @@ sub check_locks {
     ## Can check specific databases with include
     ## Can ignore databases with exclude
     ## Warning and critical are either simple numbers, or more complex:
-    ## Use locktype=number;locktype2=number
+    ## Use locktype=number:locktype2=number
     ## The locktype can be "total", "waiting", or the name of a lock
     ## Lock names are case-insensitive, and do not need the "lock" at the end.
     ## Example: --warning=100 --critical="total=200;exclusive=20;waiting=5"
@@ -4858,13 +5040,11 @@ sub check_locks {
           default_critical => 150,
           });
 
-    $SQL = q{SELECT granted, mode, datname FROM pg_locks l JOIN pg_database d ON (d.oid=l.database)};
+    $SQL = q{SELECT granted, mode, datname FROM pg_locks l RIGHT JOIN pg_database d ON (d.oid=l.database) WHERE d.datallowconn};
     my $info = run_command($SQL, { regex => qr[\s*\w+\s*\|\s*] });
 
     # Locks are counted globally not by db.
-    # add a limit by db ? (--critical='foodb.total=30 foodb.exclusive=3 postgres.total=3')
-    # end remove the -db option ?
-    # we output for each db, following the specific warning and critical :
+    # We output for each db, following the specific warning and critical :
     # time=00.1 foodb.exclusive=2;;3 foodb.total=10;;30 postgres.exclusive=0;;3 postgres.total=1;;3
     for $db (@{$info->{db}}) {
         my $gotone = 0;
@@ -4872,15 +5052,26 @@ sub check_locks {
         my %totallock = (total => 0);
       ROW: for my $r (@{$db->{slurp}}) {
             my ($granted,$mode,$dbname) = ($r->{granted}, lc $r->{mode}, $r->{datname});
+
+            ## May be forcibly skipping this database via arguments
             next ROW if skip_item($dbname);
-            $gotone = 1;
-            $mode =~ s{lock$}{};
-            $dblock{$dbname}{total}++;
-            $dblock{$dbname}{$mode}++;
-            $dblock{$dbname}{waiting}++ if $granted ne 't';
+
+            ## If we hit the right join, simply make an empty total entry
+            if (! length $granted) {
+                $dblock{$dbname}{total} ||= 0;
+            }
+            else {
+                $dblock{$dbname}{total}++;
+                $gotone = 1;
+                $mode =~ s{lock$}{};
+                $dblock{$dbname}{$mode}++;
+                $dblock{$dbname}{waiting}++ if $granted ne 't';
+            }
         }
+
         # Compute total, add hash key for critical and warning specific check
         for my $k (keys %dblock) {
+
             if ($warning) {
                 for my $l (keys %{$warning}) {
                     $dblock{$k}{$l} = 0 if ! exists $dblock{$k}{$l};
@@ -4888,7 +5079,7 @@ sub check_locks {
             }
             if ($critical) {
                 for my $l (keys %{$critical}) {
-                    $dblock{$k}{$l} = 0 if ! exists $dblock{$k}{$l};
+                    #$dblock{$k}{$l} = 0 if ! exists $dblock{$k}{$l};
                 }
             }
             for my $m (keys %{$dblock{$k}}){
@@ -5292,6 +5483,73 @@ sub check_new_version_tnm {
 } ## end of check_new_version_tnm
 
 
+sub check_pgagent_jobs {
+    ## Check for failed pgAgent jobs.
+    ## Supports: Nagios
+    ## Critical and warning are intervals.
+    ## Example: --critical="1 hour"
+    ## Example: --warning="2 hours"
+
+    my ($warning, $critical) = validate_range({ type => 'time', any_warning => 1 });
+
+    # Determine critcal warning column contents.
+    my $is_crit = $critical && $warning
+        ? "GREATEST($critical - EXTRACT('epoch' FROM NOW() - (jlog.jlgstart + jlog.jlgduration)), 0)"
+        : $critical ? 1 : 0;
+
+    # Determine max time to examine.
+    my $seconds = do {
+        no warnings;
+        $warning > $critical ? $warning : $critical;
+    };
+
+    $SQL = qq{
+        SELECT jlog.jlgid
+             , job.jobname
+             , step.jstname
+             , slog.jslresult
+             , slog.jsloutput
+             , $is_crit AS critical
+          FROM pgagent.pga_job job
+          JOIN pgagent.pga_joblog     jlog ON job.jobid  = jlog.jlgjobid
+          JOIN pgagent.pga_jobstep    step ON job.jobid  = step.jstjobid
+          JOIN pgagent.pga_jobsteplog slog ON jlog.jlgid = slog.jsljlgid AND step.jstid = slog.jsljstid
+         WHERE slog.jslresult <> 0
+           AND EXTRACT('epoch' FROM NOW() - (jlog.jlgstart + jlog.jlgduration)) < $seconds
+    };
+
+    my $info = run_command($SQL);
+
+    for $db (@{$info->{db}}) {
+        my @rows = @{ $db->{slurp} } or do {
+            add_ok msg('pgagent-jobs-ok');
+            next;
+        };
+
+        if ($rows[0]{critical} !~ /^(?:[01]|\d+[.]\d+)$/) {
+            add_unknown msg('invalid-query', $db->{slurp});
+            next;
+        }
+
+        my ($is_crit, @msg);
+        my $log_id = -1;
+        for my $step (@rows) {
+            my $output = $step->{jsloutput} || '(NO OUTPUT)';
+            push @msg => "$step->{jslresult} $step->{jobname}/$step->{jstname}: $output";
+            $is_crit ||= $step->{critical};
+        }
+
+        (my $msg = join '; ' => @msg) =~ s{\r?\n}{ }g;
+        if ($is_crit) {
+            add_critical $msg;
+        } else {
+            add_warning $msg;
+        }
+    }
+
+    return;
+}
+
 sub check_pgbouncer_checksum {
 
     ## Verify the checksum of all pgbouncer settings
@@ -5399,7 +5657,7 @@ sub check_pgbouncer_backends {
     }
 
     ## Grab information from the config
-    $SQL = qq{SHOW CONFIG};
+    $SQL = 'SHOW CONFIG';
 
     my $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
 
@@ -5415,7 +5673,7 @@ sub check_pgbouncer_backends {
     }
 
     ## Grab information from pools
-    $SQL = qq{SHOW POOLS};
+    $SQL = 'SHOW POOLS';
 
     $info = run_command($SQL, { regex => qr{\d+}, emptyok => 1 } );
 
@@ -5459,7 +5717,7 @@ sub check_pgbouncer_backends {
         if ($grandtotal) {
             ## We assume that exclude/include rules are correct, and we simply had no entries
             ## at all in the specific databases we wanted
-            add_ok msg('pgb-backends-oknone');
+            add_ok msg('pgb-backends-none');
         }
         else {
             add_unknown msg('no-match-db');
@@ -5884,7 +6142,7 @@ FROM pg_class c, pg_namespace n WHERE (relkind = %s) AND n.oid = c.relnamespace
 
             my $nicename = $kind eq 'r' ? "$schema.$name" : $name;
 
-            $db->{perf} .= sprintf "%s%s=%sB;%s;%s",
+            $db->{perf} .= sprintf '%s%s=%sB;%s;%s',
                 $VERBOSE==1 ? "\n" : ' ',
                 perfname($nicename), $size, $warning, $critical;
             ($max=$size, $pmax=$psize, $kmax=$kind, $nmax=$name, $smax=$schema) if $size > $max;
@@ -6015,7 +6273,7 @@ sub check_replicate_row {
         ndie msg('rep-wrongvals', $value1, $val1, $val2);
     }
 
-    $info1 = run_command($update, { failok => 1 } );
+    $info1 = run_command($update, { dbnumber => 1, failok => 1 } );
 
     ## Make sure the update worked
     if (! defined $info1->{db}[0]) {
@@ -6085,6 +6343,9 @@ sub check_same_schema {
     ## Include and exclude are supported
     ## Warning and critical are not used
     ## The filter argument is supported
+
+    ## We override the usual $db->{totaltime} with our own counter
+    my $start = [gettimeofday()];
 
     ## Check for filtering rules, then store inside opt{filtered}
     my %filter;
@@ -6241,7 +6502,7 @@ sub check_same_schema {
 
         for (@catalog_items) {
             my $name = $_->[0];
-            $dbinfo->{$name} = find_catalog_info($name, $x);
+            $dbinfo->{$name} = find_catalog_info($name, $x, $dbver{$x});
         }
 
         ## TODO:
@@ -6300,6 +6561,26 @@ sub check_same_schema {
         if (exists $fail{$_}{diff} and ! keys %{ $fail{$_}{diff} }) {
             delete $fail{$_}{diff};
         }
+    }
+
+    ## Set the total time
+    $db->{totaltime} = sprintf '%.2f', tv_interval($start);
+
+    ## Before we outpu any results, rewrite the audit file if needed
+    ## We do this if we are reading from a saved file,
+    ## and the "replace" argument is set
+    if ($samedb and $opt{replace}) {
+        my $filename = audit_filename();
+        if ( -e $filename) {
+            ## Move the old one to a backup version
+            my $backupfile = "$filename.backup";
+            rename $filename, $backupfile;
+        }
+        my $version = $dbver{1}{version};
+        write_audit_file({ file => $filename, 'same_schema' => 1,
+                           info => $thing{1}, pgversion => $version });
+        ## Cannot print this message as we are outputting Nagios stuff
+        #print msg('ss-createfile', $filename) . "\n";
     }
 
     ## Comparison is done, let's report the results
@@ -6386,10 +6667,30 @@ sub check_same_schema {
                         }
 
                         ## Do not show function body differences if filtered out with "nofuncbody"
+                        ## Also skip if the equivalent 'dash' and 'empty'
                         if ($item eq 'function'
-                            and $col eq 'prosrc'
-                            and $opt{filtered}{nofuncbody}) {
-                            next;
+                            and $col eq 'prosrc') {
+
+                            next if $opt{filtered}{nofuncbody};
+                            my ($one,$two);
+                            for my $db (sort keys %{ $tdiff->{coldiff}{$col} }) {
+                                if (defined $one) {
+                                    $two = $tdiff->{coldiff}{$col}{$db};
+                                }
+                                else {
+                                    $one = $tdiff->{coldiff}{$col}{$db};
+                                }
+                            }
+                            next if $one eq '-' and $two eq '';
+                            next if $one eq '' and $two eq '-';
+                        }
+
+                        ## If we are doing a historical comparison, skip some items
+                        if ($samedb) {
+                            if ($item eq 'sequence'
+                                and $col eq 'last_value') {
+                                next;
+                            }
                         }
 
                         push @msg => sprintf " %s\n", msg('ss-different', $col);
@@ -6423,13 +6724,13 @@ sub check_same_schema {
                         }
 
                         if (exists $tdiff->{list}{$col}{exists}) {
-                            my $e = $tdiff->{list}{$col}{exists};
-                            for my $name (sort keys %$e) {
+                            my $ex = $tdiff->{list}{$col}{exists};
+                            for my $name (sort keys %$ex) {
                                 push @msg => sprintf qq{  "%s":\n    %s\n},
                                     $col,
                                     msg('ss-notset', $name);
-                                my $isthere = join ', ' => sort { $a<=>$b } keys %{ $e->{$name}{isthere} };
-                                my $nothere = join ', ' => sort { $a<=>$b } keys %{ $e->{$name}{nothere} };
+                                my $isthere = join ', ' => sort { $a<=>$b } keys %{ $ex->{$name}{isthere} };
+                                my $nothere = join ', ' => sort { $a<=>$b } keys %{ $ex->{$name}{nothere} };
                                 push @msg => sprintf "      %-*s %s\n      %-*s %s\n",
                                     $maxsize, $msg_exists,
                                     $isthere,
@@ -6605,7 +6906,7 @@ sub read_audit_file {
     close $fh or warn qq{Could not close "$filename": $!\n};
 
     my $POSTGRES1;
-    eval $data;
+    eval $data; ## no critic (ProhibitStringyEval)
     if ($@) {
         die qq{Failed to parse file "$filename": $@\n};
     }
@@ -6755,11 +7056,25 @@ sub schema_item_differences {
 
                     if (length $uno) {
                         die "Invalid list: $uno for db $db1:$name:$col\n" if $uno !~ /^{(.+)}$/;
-                        %list1 = map { /(.*)=(.+)/ or die "Invalid list: $uno"; $1,$2 } split /,/ => $1;
+                        my $t = $1;
+                        my @tlist = ();
+                        push(@tlist, $+) while $t =~ m{"([^\"\\]*(?:\\.[^\"\\]*)*)",?
+                                                 | ([^,]+),?
+                                                 | ,
+                                                }gx;
+                        push(@tlist, undef) if substr($t, -1,1) eq ',';
+                        %list1 = map { /(.*)=(.+)/ or die "Invalid list: $uno"; $1,$2 } @tlist;
                     }
                     if (length $dos) {
                         die "Invalid list: $dos for db $db2:$name:$col\n" if $dos !~ /^{(.+)}$/;
-                        %list2 = map { /(.*)=(.+)/ or die "Invalid list: $uno"; $1,$2 } split /,/ => $1;
+                        my $t = $1;
+                        my @tlist = ();
+                        push(@tlist, $+) while $t =~ m{"([^\"\\]*(?:\\.[^\"\\]*)*)",?
+                                                 | ([^,]+),?
+                                                 | ,
+                                                }gx;
+                        push(@tlist, undef) if substr($t, -1,1) eq ',';
+                        %list2 = map { /(.*)=(.+)/ or die "Invalid list: $uno"; $1,$2 } @tlist;
                     }
 
                     ## Items in 1 but not 2?
@@ -6797,6 +7112,11 @@ sub find_catalog_info {
 
     ## Grab information from one or more catalog tables
     ## Convert into a happy hashref and return it
+    ## Arguments: three
+    ## 1. Type of object
+    ## 2. Database number
+    ## 3. Version information for the database
+    ## Returns: large hashref of information
 
     ## What type of catalog object this is
     my $type = shift;
@@ -6816,8 +7136,18 @@ sub find_catalog_info {
     ## Which database to run this against
     my $dbnum = shift or die;
 
+    ## The version information
+    my $dbver = shift or die;
+
     ## The SQL we use
-    my $SQL = $ci->{SQL} or die;
+    my $SQL = $ci->{SQL} or die "No SQL found for type '$type'\n";
+
+    ## Switch to alternate SQL for different versions
+    if ($type eq 'language') {
+        if (int $dbver->{major} <= 8.2) {
+            $SQL = $ci->{SQL2};
+        }
+    }
 
     if (exists $ci->{exclude}) {
         if ('temp_schemas' eq $ci->{exclude}) {
@@ -6853,6 +7183,7 @@ sub find_catalog_info {
     my $colnum = 1;
 
     ## Only need to pull back the first and only db, so we can say [0] here
+  ROW:
     for my $row (@{$info->{db}[0]{slurp}}) {
 
         ## Remove any information that should be deleted
@@ -6865,22 +7196,20 @@ sub find_catalog_info {
 
         ## For a function, we also want to put the args into the name
         if ($type eq 'function') {
-            ## Grab all type mappings
-            $SQL = 'SELECT oid, typname FROM pg_type';
-            my %oid2type;
-            my $tinfo = run_command($SQL, { dbnumber => $dbnum });
-            for my $row (@{ $tinfo->{db}[0]{slurp} }) {
-                $oid2type{$row->{oid}} = $row->{typname};
+            ## Once per database, grab all mappings
+            if (! exists $opt{oid2type}{$dbnum}) {
+                $SQL = 'SELECT oid, typname FROM pg_type';
+                my $tinfo = run_command($SQL, { dbnumber => $dbnum });
+                for my $row (@{ $tinfo->{db}[0]{slurp} }) {
+                    $opt{oid2type}{$dbnum}{$row->{oid}} = $row->{typname};
+                }
             }
-            (my $args = $row->{proargtypes}) =~ s/(\d+)/$oid2type{$1}||$1/ge;
+            (my $args = $row->{proargtypes}) =~ s/(\d+)/$opt{oid2type}{$dbnum}{$1}||$1/ge;
             $args =~ s/ /,/g;
             $args =~ s/ints/smallint/g;
             $args =~ s/int4/int/g;
             $args =~ s/int8/bigint/g;
             $name .= "($args)";
-
-            ## Special transform for probin, which may be different depending on the version
-            $row->{probin} = '' if $row->{probin} eq '-';
 
         }
 
@@ -6898,11 +7227,39 @@ sub find_catalog_info {
 
         ## We may want to run additional SQL per row returned
         if (exists $ci->{innerSQL}) {
+
+            if ($type eq 'sequence') {
+                ## If this is a sequence, we want to grab them all at once to reduce 
+                ## the amount of round-trips we do with 'SELECT * FROM seqname'
+                if (! exists $opt{seqinfoss}{$dbnum}) {
+                    $SQL = q{SELECT quote_ident(nspname)||'.'||quote_ident(relname) AS sname }
+                         . q{FROM pg_class }
+                         . q{JOIN pg_namespace n ON (n.oid = relnamespace) }
+                         . q{WHERE relkind = 'S'};
+                    my $sinfo = run_command($SQL, { dbnumber => $dbnum } );
+                    $SQL = join "\n  UNION ALL\n" =>
+                        map { "SELECT '$_->{sname}' AS fullname, * FROM $_->{sname}" }
+                            @{ $sinfo->{db}[0]{slurp}};
+                    $sinfo = run_command($SQL, { dbnumber => $dbnum } );
+
+                    ## Store it back into the global hash
+                    for my $row (@{ $sinfo->{db}[0]{slurp} }) {
+                        $opt{seqinfoss}{$dbnum}{$row->{fullname}} = $row;
+                    }
+                }
+
+                ## If it does not exist in the cache, just fall through and do it manually!
+                if (exists $opt{seqinfoss}{$dbnum}{$row->{safename}}) {
+                    $result->{$row->{safename}} = $opt{seqinfoss}{$dbnum}{$row->{safename}};
+                    next ROW;
+                }
+            }
+
             (my $SQL2 = $ci->{innerSQL}) =~ s/ROW(\w+)/$row->{lc $1}/g;
             my $info2 = run_command($SQL2, { dbnumber => $dbnum } );
             for my $row2 (@{ $info2->{db}[0]{slurp} }) {
                 for my $inner (keys %{ $row2 }) {
-                    $result->{$row->{$key}}{$inner} = $row2->{$inner};
+                    $result->{$name}{$inner} = $row2->{$inner};
                 }
             }
         }
@@ -6932,6 +7289,7 @@ sub check_sequence {
     (my $c = $critical) =~ s/\D//;
 
     ## Gather up all sequence names
+    ## no critic
     my $SQL = q{
 SELECT DISTINCT ON (nspname, seqname) nspname, seqname,
   quote_ident(nspname) || '.' || quote_ident(seqname) AS safename, typname
@@ -6970,8 +7328,10 @@ FROM (
  JOIN pg_namespace nsp ON nsp.oid = relnamespace
  WHERE relkind = 'S'
 ) AS seqs
+WHERE nspname !~ '^pg_temp.*'
 ORDER BY nspname, seqname, typname
 };
+    ## use critic
 
     my $info = run_command($SQL, {regex => qr{\w}, emptyok => 1} );
 
@@ -7154,7 +7514,7 @@ sub check_slony_status {
     }
 
     my $SLSQL =
-qq{SELECT
+q{SELECT
  ROUND(EXTRACT(epoch FROM st_lag_time)) AS lagtime,
  st_origin,
  st_received,
@@ -7295,13 +7655,33 @@ sub check_txn_idle {
 
     ## We don't GROUP BY because we want details on every connection
     ## Someday we may even break things down by database
-    $SQL = q{SELECT datname, datid, procpid, usename, client_addr, xact_start, current_query, }.
-        q{CASE WHEN client_port < 0 THEN 0 ELSE client_port END AS client_port, }.
-        qq{COALESCE(ROUND(EXTRACT(epoch FROM now()-$start)),0) AS seconds }.
-        qq{FROM pg_stat_activity WHERE $clause$USERWHERECLAUSE }.
-        qq{ORDER BY xact_start, query_start, procpid DESC};
+    my ($SQL2, $SQL3);
+    if ($type ne 'qtime') {
+        $SQL = q{SELECT datname, datid, procpid AS pid, usename, client_addr, xact_start, current_query AS current_query, '' AS state, }.
+            q{CASE WHEN client_port < 0 THEN 0 ELSE client_port END AS client_port, }.
+            qq{COALESCE(ROUND(EXTRACT(epoch FROM now()-$start)),0) AS seconds }.
+            qq{FROM pg_stat_activity WHERE $clause$USERWHERECLAUSE }.
+            q{ORDER BY xact_start, query_start, procpid DESC};
+        ## Craft an alternate version for old servers that do not have the xact_start column:
+        ($SQL2 = $SQL) =~ s/xact_start/query_start AS xact_start/;
+        $SQL2 =~ s/BY xact_start,/BY/;
+    }
+    else {
+        $SQL2 = $SQL = q{SELECT datname, datid, procpid AS pid, usename, client_addr, current_query AS current_query, '' AS state, }.
+            q{CASE WHEN client_port < 0 THEN 0 ELSE client_port END AS client_port, }.
+            qq{COALESCE(ROUND(EXTRACT(epoch FROM now()-$start)),0) AS seconds }.
+            qq{FROM pg_stat_activity WHERE $clause$USERWHERECLAUSE }.
+            q{ORDER BY query_start, procpid DESC};
+    }
 
-    my $info = run_command($SQL, { emptyok => 1 } );
+    ## Craft an alternate version for new servers which do not have procpid and current_query is split
+    ($SQL3 = $SQL) =~ s/procpid/pid/g;
+    $SQL3 =~ s/current_query ~ '\^<'/state = 'idle in transaction' OR state IS NULL/;
+    $SQL3 =~ s/current_query NOT LIKE '<IDLE>%'/state NOT LIKE 'idle%' OR state IS NULL/; # query_time
+    $SQL3 =~ s/current_query/query/g;
+    $SQL3 =~ s/'' AS state/state AS state/;
+
+    my $info = run_command($SQL, { emptyok => 1 , version => [ "<8.3 $SQL2", ">9.1 $SQL3" ] } );
 
     ## Extract the first entry
     $db = $info->{db}[0];
@@ -7313,7 +7693,14 @@ sub check_txn_idle {
     my $count = 0;
 
     ## Info about the top offender
-    my $whodunit = "DB: $db->{dbname}";
+    my $whodunit = '';
+    if ($MRTG) {
+        if (defined $db->{dbname}) {
+            $whodunit = "DB: $db->{dbname}";
+        } else {
+            $whodunit = sprintf q{DB: %s}, msg('no-db');
+        }
+    }
 
     ## Process each returned row
     for my $r (@{ $db->{slurp} }) {
@@ -7321,29 +7708,30 @@ sub check_txn_idle {
         ## Skip if we don't care about this database
         next if skip_item($r->{datname});
 
-        ## We do a lot of filtering based on the current_query
-        my $cq = $r->{current_query};
+        ## We do a lot of filtering based on the current_query or state in 9.2+
+        my $cq = $r->{query} || $r->{current_query};
+        my $st = $r->{state} || '';
 
-        ## Return unknown if we cannot see because we are a non-superuser?
+        ## Return unknown if we cannot see because we are a non-superuser
         if ($cq =~ /insufficient/o) {
             add_unknown msg('psa-nosuper');
             return;
         }
 
-        ## Return unknown if stats_command_string / track_activities is off?
-        if ($cq =~ /disabled/o) {
+        ## Return unknown if stats_command_string / track_activities is off
+        if ($cq =~ /disabled/o or $cq =~ /<command string not enabled>/) {
             add_unknown msg('psa-disabled');
             return;
         }
 
         ## Detect other cases where pg_stat_activity is not fully populated
-        if (length $r->{xact_start} and $r->{xact_start} !~ /\d/o) {
+        if ($type ne 'qtime' and length $r->{xact_start} and $r->{xact_start} !~ /\d/o) {
             add_unknown msg('psa-noexact');
             return;
         }
 
         ## Filter out based on the action
-        next if $action eq 'txn_idle' and $cq ne '<IDLE> in transaction';
+        next if $action eq 'txn_idle' and $cq ne '<IDLE> in transaction' and $st ne 'idle in transaction';
 
         ## Keep track of the longest overall time
         $maxr = $r if $r->{seconds} >= $maxr->{seconds};
@@ -7375,7 +7763,7 @@ sub check_txn_idle {
     ## Details on who the top offender was
     if ($max > 0) {
         $whodunit = sprintf q{%s:%s %s:%s %s:%s%s%s},
-            msg('PID'), $maxr->{procpid},
+            msg('PID'), $maxr->{pid},
             msg('database'), $maxr->{datname},
             msg('username'), $maxr->{usename},
             $maxr->{client_addr} eq '' ? '' : (sprintf ' %s:%s', msg('address'), $maxr->{client_addr}),
@@ -7446,8 +7834,8 @@ sub check_txn_idle {
 
 sub check_txn_time {
 
-    ## This is the same as check_txn_idle, but we want where the time is not null
-    ## as well as excluding any idle in transactions
+    ## This is the same as check_txn_idle, but we want where the 
+    ## transaction start time is not null
 
     check_txn_idle('txntime',
                    '',
@@ -7646,7 +8034,7 @@ sub check_wal_files {
 
 B<check_postgres.pl> - a Postgres monitoring script for Nagios, MRTG, Cacti, and others
 
-This documents describes check_postgres.pl version 2.18.0
+This documents describes check_postgres.pl version 2.20.0
 
 =head1 SYNOPSIS
 
@@ -7660,7 +8048,7 @@ This documents describes check_postgres.pl version 2.18.0
   check_postgres_connection --db=pluto
 
   ## Warn if > 100 locks, critical if > 200, or > 20 exclusive
-  check_postgres_locks --warning=100 --critical="total=200;exclusive=20"
+  check_postgres_locks --warning=100 --critical="total=200:exclusive=20"
 
   ## Show the current number of idle connections on port 6543:
   check_postgres_txn_idle --port=6543 --output=simple
@@ -7782,9 +8170,16 @@ Instead, one should use a .pgpass or pg_service.conf file.
 
 =item B<--dbservice=NAME>
 
-The name of a service inside of the pg_service.conf file. This file is in your home directory by 
-default and contains a simple list of connection options. You can also pass additional information 
+The name of a service inside of the pg_service.conf file. Before version 9.0 of Postgres, this is 
+a global file, usually found in /etc/pg_service.conf. If you are using version 9.0 or higher of 
+Postgres, you can use the file ".pg_service.conf" in the home directory of the user running 
+the script, e.g. nagios.
+
+This file contains a simple list of connection options. You can also pass additional information 
 when using this option such as --dbservice="maindatabase sslmode=require"
+
+The documentation for this file can be found at
+http://www.postgresql.org/docs/current/static/libpq-pgservice.html
 
 =back
 
@@ -7847,6 +8242,16 @@ Example:
     postgres@db$./check_postgres.pl --action=version --warning=8.1 --datadir /var/lib/postgresql/8.3/main/ --assume-standby-mode
     POSTGRES_VERSION OK:  Server in standby mode | time=0.00
 
+=item B<--assume-prod>
+
+If specified, check if server in production mode is performed (--datadir is required).
+The option is only relevant for (C<symlink: check_postgres_checkpoint>).
+
+Example:
+
+    postgres@db$./check_postgres.pl --action=checkpoint --datadir /var/lib/postgresql/8.3/main/ --assume-prod
+    POSTGRES_CHECKPOINT OK: Last checkpoint was 72 seconds ago | age=72;;300 mode=MASTER
+
 =item B<-h> or B<--help>
 
 Displays a help screen with a summary of all actions and options.
@@ -7890,8 +8295,19 @@ Only takes effect if using Nagios output mode.
 
 Enables test mode. See the L</"TEST MODE"> section below.
 
+=item B<--PGBINDIR=PATH>
+
+Tells the script where to find the psql binaries. Useful if you have more than
+one version of the PostgreSQL executables on your system, or if there are not
+in your path. Note that this option is in all uppercase. By default, this option
+is I<not allowed>. To enable it, you must change the C<$NO_PSQL_OPTION> near the
+top of the script to 0. Avoid using this option if you can, and instead use
+environment variable c<PGBINDIR> or hard-coded C<$PGBINDIR> variable, also near
+the top of the script, to set the path to the PostgreSQL to use.
+
 =item B<--PSQL=PATH>
 
+I<(deprecated, this option may be removed in a future release!)>
 Tells the script where to find the psql program. Useful if you have more than 
 one version of the psql executable on your system, or if there is no psql program 
 in your path. Note that this option is in all uppercase. By default, this option 
@@ -8063,7 +8479,8 @@ Note that this action has two hard-coded values to avoid false alarms on
 smaller relations. Tables must have at least 10 pages, and indexes at least 15, 
 before they can be considered by this test. If you really want to adjust these 
 values, you can look for the variables I<$MINPAGES> and I<$MINIPAGES> at the top of the 
-C<check_bloat> subroutine.
+C<check_bloat> subroutine. These values are ignored if either I<--exclude> or 
+I<--include> is used.
 
 Only the top 10 most bloated relations are shown. You can change this number by 
 using the I<--perflimit> option to set your own limit.
@@ -8113,15 +8530,37 @@ processing shipped WAL files, and is meant to check that your warm standby is tr
 The data directory must be set, either by the environment variable C<PGDATA>, or passing 
 the C<--datadir> argument. It returns the number of seconds since the last checkpoint 
 was run, as determined by parsing the call to C<pg_controldata>. Because of this, the 
-pg_controldata executable must be available in the current path. Alternatively, you can 
-set the environment variable C<PGCONTROLDATA> to the exact location of the pg_controldata 
-executable, or you can specify C<PGBINDIR> as the directory that it lives in.
+pg_controldata executable must be available in the current path. Alternatively,
+you can specify C<PGBINDIR> as the directory that it lives in.
+It is also possible to use the special options I<--assume-prod> or
+I<--assume-standby-mode>, if the mode found is not the one expected, a CRITICAL is emitted.
 
 At least one warning or critical argument must be set.
 
 This action requires the Date::Parse module.
 
 For MRTG or simple output, returns the number of seconds.
+
+=head2 B<cluster_id>
+
+(C<symlink: check_postgres_cluster-id>) Checks that the Database System Identifier
+provided by pg_controldata is the same as last time you checked. This must run on the same
+server as the database that is being checked (e.g. the -h flag will not work).
+Either the I<--warning> or the I<--critical> option should be given, but not both. The value
+of each one is the cluster identifier, an integer value. You can run with the special C<--critical=0> option
+to find out an existing cluster identifier.
+
+Example 1: Find the initial identifier
+
+  check_postgres_cluster_id --critical=0 --datadir=/var//lib/postgresql/9.0/main
+
+Example 2: Make sure the cluster is the same and warn if not, using the result from above.
+
+  check_postgres_cluster_id  --critical=5633695740047915135
+
+For MRTG output, returns a 1 or 0 indicating success of failure of the identifier to match. A
+identifier must be provided as the C<--mrtg> argument. The fourth line always gives the
+current identifier.
 
 =head2 B<commitratio>
 
@@ -8391,7 +8830,7 @@ L</"BASIC FILTERING"> section for more details.
 
 Example 1: Make sure that no file system is over 90% for the database on port 5432.
 
-  check_postgres_disk_space --port=5432 --warning='90%' --critical="90%'
+  check_postgres_disk_space --port=5432 --warning='90%' --critical='90%'
 
 Example 2: Check that all file systems starting with /dev/sda are smaller than 10 GB and 11 GB (warning and critical)
 
@@ -8450,7 +8889,7 @@ the second line.
 
 =head2 B<hitratio>
 
-(C<symlink: check_postgres_database_hitratio>) Checks the hit ratio of all databases and complains when they are too low.
+(C<symlink: check_postgres_hitratio>) Checks the hit ratio of all databases and complains when they are too low.
 There is no need to run this command more than once per database cluster. 
 Databases can be filtered with 
 the I<--include> and I<--exclude> options. See the L</"BASIC FILTERING"> section 
@@ -8466,7 +8905,7 @@ hitratio, smallest first.
 
 Example: Warn if any database on host flagg is less than 90% in hitratio, and critical if less then 80%.
 
-  check_postgres_database_hitratio --host=flagg --warning='90%' --critical='80%'
+  check_postgres_hitratio --host=flagg --warning='90%' --critical='80%'
 
 For MRTG output, returns the percentage of the database with the smallest hitratio on the first line, 
 and the name of the database on the fourth line.
@@ -8603,7 +9042,7 @@ which represent the total number of locks, or they can be broken down by type of
 Valid lock names are C<'total'>, C<'waiting'>, or the name of a lock type used by Postgres. 
 These names are case-insensitive and do not need the "lock" part on the end, 
 so B<exclusive> will match 'ExclusiveLock'. The format is name=number, with different 
-items separated by semicolons.
+items separated by colons or semicolons (or any other symbol).
 
 Example 1: Warn if the number of locks is 100 or more, and critical if 200 or more, on host garrett
 
@@ -8611,7 +9050,7 @@ Example 1: Warn if the number of locks is 100 or more, and critical if 200 or mo
 
 Example 2: On the host artemus, warn if 200 or more locks exist, and give a critical if over 250 total locks exist, or if over 20 exclusive locks exist, or if over 5 connections are waiting for a lock.
 
-  check_postgres_locks --host=artemus --warning=200 --critical="total=250;waiting=5;exclusive=20"
+  check_postgres_locks --host=artemus --warning=200 --critical="total=250:waiting=5:exclusive=20"
 
 For MRTG output, returns the number of locks on the first line, and the name of the database on the fourth line.
 
@@ -8690,31 +9129,6 @@ tool that can send mail when interesting events appear in your Postgres logs.
 See: http://bucardo.org/wiki/Tail_n_mail for more information).
 See also the information on the C<--get_method> option.
 
-=head2 B<pgbouncer_checksum>
-
-(C<symlink: check_postgres_pgbouncer_checksum>) Checks that all the
-pgBouncer settings are the same as last time you checked. 
-This is done by generating a checksum of a sorted list of setting names and 
-their values. Note that you shouldn't specify the database name, it will
-automatically default to pgbouncer.  Either the I<--warning> or the I<--critical> option 
-should be given, but not both. The value of each one is the checksum, a 
-32-character hexadecimal value. You can run with the special C<--critical=0> option 
-to find out an existing checksum.
-
-This action requires the Digest::MD5 module.
-
-Example 1: Find the initial checksum for pgbouncer configuration on port 6432 using the default user (usually postgres)
-
-  check_postgres_pgbouncer_checksum --port=6432 --critical=0
-
-Example 2: Make sure no settings have changed and warn if so, using the checksum from above.
-
-  check_postgres_pgbouncer_checksum --port=6432 --warning=cd2f3b5e129dc2b4f5c0f6d8d2e64231
-
-For MRTG output, returns a 1 or 0 indicating success of failure of the checksum to match. A 
-checksum must be provided as the C<--mrtg> argument. The fourth line always gives the 
-current checksum.
-
 =head2 B<pgb_pool_cl_active>
 
 =head2 B<pgb_pool_cl_waiting>
@@ -8789,6 +9203,56 @@ the fourth line gives the name of the database, plus the current
 max_client_conn. If more than one database has been queried, the one with the
 highest number of connections is output.
 
+=head2 B<pgbouncer_checksum>
+
+(C<symlink: check_postgres_pgbouncer_checksum>) Checks that all the
+pgBouncer settings are the same as last time you checked. 
+This is done by generating a checksum of a sorted list of setting names and 
+their values. Note that you shouldn't specify the database name, it will
+automatically default to pgbouncer.  Either the I<--warning> or the I<--critical> option 
+should be given, but not both. The value of each one is the checksum, a 
+32-character hexadecimal value. You can run with the special C<--critical=0> option 
+to find out an existing checksum.
+
+This action requires the Digest::MD5 module.
+
+Example 1: Find the initial checksum for pgbouncer configuration on port 6432 using the default user (usually postgres)
+
+  check_postgres_pgbouncer_checksum --port=6432 --critical=0
+
+Example 2: Make sure no settings have changed and warn if so, using the checksum from above.
+
+  check_postgres_pgbouncer_checksum --port=6432 --warning=cd2f3b5e129dc2b4f5c0f6d8d2e64231
+
+For MRTG output, returns a 1 or 0 indicating success of failure of the checksum to match. A 
+checksum must be provided as the C<--mrtg> argument. The fourth line always gives the 
+current checksum.
+
+=head2 B<pgagent_jobs>
+
+(C<symlink: check_postgres_pgagent_jobs>) Checks that all the pgAgent jobs
+that have executed in the preceding interval of time have succeeded. This is
+done by checking for any steps that have a non-zero result.
+
+Either C<--warning> or C<--critical>, or both, may be specified as times, and
+jobs will be checked for failures withing the specified periods of time before
+the current time. Valid units are seconds, minutes, hours, and days; all can
+be abbreviated to the first letter. If no units are given, 'seconds' are
+assumed.
+
+Example 1: Give a critical when any jobs executed in the last day have failed.
+
+  check_postgres_pgagent_jobs --critical=1d
+
+Example 2: Give a warning when any jobs executed in the last week have failed.
+
+  check_postgres_pgagent_jobs --warning=7d
+
+Example 3: Give a critical for jobs that have failed in the last 2 hours and a
+warning for jobs that have failed in the last 4 hours:
+
+  check_postgres_pgagent_jobs --critical=2h --warning=4h
+
 =head2 B<prepared_txns>
 
 (C<symlink: check_postgres_prepared_txns>) Check on the age of any existing prepared transactions. 
@@ -8844,7 +9308,7 @@ are 'seconds', 'minutes', 'hours', or 'days'. Each may be written singular or
 abbreviated to just the first letter. If no units are given, the unit is 
 assumed to be seconds.
 
-This action requires Postgres 8.3 or better.
+This action requires Postgres 8.1 or better.
 
 Example 1: Give a warning if any query has been running longer than 3 minutes, and a critical if longer than 5 minutes.
 
@@ -8958,6 +9422,8 @@ The first time this is run a snapshot of all the items in the database is
 saved to a local file. When you run it again, that snapshot is read in and 
 becomes "database #2" and is compared to the current database.
 
+To replace the old stored file with the new version, use the --replace argument.
+
 To enable snapshots at various points in time, you can use the "--suffix" 
 argument to make the filenames unique to each run. See the examples below.
 
@@ -8982,9 +9448,9 @@ Example 5: Create a daily and weekly snapshot file
   check_postgres_same_schema --dbname=cylon --suffix=daily
   check_postgres_same_schema --dbname=cylon --suffix=weekly
 
-Example 6: Run a historical comparison
+Example 6: Run a historical comparison, then replace the file
 
-  check_postgres_same_schema --dbname=cylon --suffix=daily
+  check_postgres_same_schema --dbname=cylon --suffix=daily --replace
 
 =head2 B<sequence>
 
@@ -9331,6 +9797,7 @@ check_postgresrc files can be ignored by supplying a C<--no-checkpostgresrc> arg
 =head1 ENVIRONMENT VARIABLES
 
 The environment variable I<$ENV{HOME}> is used to look for a F<.check_postgresrc> file.
+The environment variable I<$ENV{PGBINDIR}> is used to look for PostgreSQL binaries.
 
 =head1 TIPS AND TRICKS
 
@@ -9396,7 +9863,49 @@ Items not specifically attributed are by GSM (Greg Sabino Mullane).
 
 =over 4
 
-=item B<Version 2.18.0>
+=item B<Version 2.20.0>
+
+  Add check for pgagent jobs (David E. Wheeler)
+
+  Force STDOUT to use utf8 for proper output
+    (Greg Sabino Mullane; reported by Emmanuel Lesouef)
+
+  Allow for spaces in item lists when doing same_schema.
+
+  Allow txn_idle to work again for < 8.3 servers by switching to query_time.
+
+  Cache sequence information to speed up same_schema runs.
+
+  Adjust docs to show colon as a better separator inside args for locks
+    (Charles Sprickman)
+
+  Fix undefined $SQL2 error in check_txn_idle [github issue 16] (Patric Bechtel)
+
+=item B<Version 2.19.0> January 17, 2012
+
+  Add the --assume-prod option (Cédric Villemain)
+
+  Add the cluster_id check (Cédric Villemain)
+
+  Improve settings_checksum and checkpoint tests (Cédric Villemain)
+
+  Do no do an inner join to pg_user when checking database size
+    (Greg Sabino Mullane; reported by Emmanuel Lesouef)
+
+  Use the full path when getting sequence information for same_schema.
+    (Greg Sabino Mullane; reported by Cindy Wise)
+
+  Fix the formula for calculating xlog positions (Euler Taveira de Oliveira)
+
+  Better ordering of output for bloat check - make indexes as important
+    as tables (Greg Sabino Mullane; reported by Jens Wilke)
+
+  Show the dbservice if it was used at top of same_schema output
+    (Mike Blackwell)
+
+  Better installation paths (Greg Sabino Mullane, per bug 53)
+
+=item B<Version 2.18.0> October 2, 2011
 
   Redo the same_schema action. Use new --filter argument for all filtering.
   Allow comparisons between any number of databases.
@@ -9460,7 +9969,11 @@ Items not specifically attributed are by GSM (Greg Sabino Mullane).
 
   Clean up the custom_query action a bit.
 
+  Fix space in perfdata for hot_standby_delay action (Nicolas Thauvin)
+
   Handle undef percents in check_fsm_relations (Andy Lester)
+
+  Fix typo in dbstats action (Stas Vitkovsky)
 
   Fix MRTG for last vacuum and last_analyze actions.
 
@@ -10017,7 +10530,7 @@ Some example Nagios configuration settings using this script:
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright (c) 2007-2011 Greg Sabino Mullane <greg@endpoint.com>.
+Copyright (c) 2007-2012 Greg Sabino Mullane <greg@endpoint.com>.
 
 Redistribution and use in source and binary forms, with or without 
 modification, are permitted provided that the following conditions are met:

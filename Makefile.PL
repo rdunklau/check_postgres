@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use 5.006001;
 
-my $VERSION = '2.18.0';
+my $VERSION = '2.20.0';
 
 if ($VERSION =~ /_/) {
     print "WARNING! This is a test version ($VERSION) and should not be used in production!\n";
@@ -64,8 +64,10 @@ my %opts = (
     VERSION_FROM   => 'check_postgres.pl',
     EXE_FILES      => ['check_postgres.pl'],
     MAN1PODS       => {},
+    MAN3PODS       => { 'check_postgres.pl' => 'blib/man3/check_postgres.3'},
     NEEDS_LINKING  => 0,
     NORECURS       => 1,
+    PM             => {},
     clean          => { FILES => join ' ' => @cleanfiles },
 );
 

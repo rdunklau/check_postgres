@@ -6,7 +6,7 @@ use 5.006;
 use strict;
 use warnings;
 use Data::Dumper;
-use Test::More tests => 53;
+use Test::More tests => 52;
 use lib 't','.';
 use CP_Testing;
 
@@ -16,11 +16,15 @@ my $cp = CP_Testing->new( {default_action => 'backends'} );
 
 $dbh = $cp->test_database_handle();
 
+## Remove any old fake schema
+$cp->drop_schema_if_exists();
+
 my $S = q{Action 'backends'};
 my $label = 'POSTGRES_BACKENDS';
 
 my $ver = $dbh->{pg_server_version};
 my $goodver = $ver >= 80200 ? 1 : 0;
+my $pg92 = $ver >= 90200 ? 1 : 0;
 
 ## Check current number of connections: should be 1 (for recent versions of PG)
 $SQL = 'SELECT count(*) FROM pg_stat_activity';
@@ -123,24 +127,19 @@ like ($cp->run("-c ${num}0%"), qr{^$label CRITICAL}, $t);
 like ($cp->run('-c 40%'), qr{^$label OK}, $t);
 
 $t=qq{$S works with critical option as a negative number};
-like ($cp->run('-c -6'), qr{^$label CRITICAL}, $t);
-like ($cp->run('-c -7'), qr{^$label CRITICAL}, $t);
-$num = $goodver ? 8 : 9;
-like ($cp->run("-c -$num"), qr{^$label OK}, $t);
+like ($cp->run('-c -5'), qr{^$label OK}, $t);
+like ($cp->run('-c -6'), qr{^$label OK}, $t);
+$num = $goodver ? 7 : 8;
+like ($cp->run("-c -$num"), qr{^$label CRITICAL}, $t);
 
 $t=qq{$S works when no items caught by pg_stat_activity};
-
-$cp->drop_schema_if_exists();
-$cp->create_fake_pg_table('pg_stat_activity');
-like ($cp->run(), qr{^$label OK: .+No connections}, $t);
-
-$t=qq{$S returns correct MRTG output when no rows};
-is ($cp->run('--output=MRTG'), qq{0\n0\n\nDB=postgres Max connections=10\n}, $t);
+$cp->create_fake_pg_table('pg_stat_activity','', $pg92 ? ' WHERE pid = pg_backend_pid()' : ' WHERE procpid = pg_backend_pid()');
+like ($cp->run(), qr{^$label OK: .+1 of }, $t);
 
 $t=qq{$S fails as expected when max_connections cannot be determined};
 $cp->create_fake_pg_table('pg_settings');
 like ($cp->run(), qr{^$label UNKNOWN: .+max_connections}, $t);
-$cp->drop_schema_if_exists();
+$cp->remove_fake_pg_table('pg_settings');
 
 $t=qq{$S works when include forces no matches};
 like ($cp->run('--include=foobar'), qr{^$label OK: .+No connections}, $t);
@@ -150,10 +149,10 @@ SKIP: {
     $goodver or skip 'Cannot test backends completely with older versions of Postgres', 2;
 
     $t=qq{$S returns correct MRTG output when rows found};
-    is ($cp->run('--output=MRTG'), qq{3\n0\n\nDB=postgres Max connections=10\n}, $t);
+    like ($cp->run('--output=MRTG'), qr{^1\n0\n\nDB=postgres}, $t);
 
     $t=qq{$S works when include has valid database};
-    like ($cp->run('--include=postgres'), qr{^$label OK: .+3 of 10}, $t);
+    like ($cp->run('--include=postgres'), qr{^$label OK: .+1 of 10}, $t);
 }
 
 $t=qq{$S works when exclude forces no matches};
@@ -164,16 +163,16 @@ SKIP: {
     $goodver or skip 'Cannot test backends completely with older versions of Postgres', 4;
 
     $t=qq{$S works when exclude excludes nothing};
-    like ($cp->run('--exclude=foobar'), qr{^$label OK: .+3 of 10}, $t);
+    like ($cp->run('--exclude=foobar'), qr{^$label OK: .+1 of 10}, $t);
 
     $t=qq{$S works when include and exclude make a match};
-    like ($cp->run('--exclude=postgres --include=postgres'), qr{^$label OK: .+3 of 10}, $t);
+    like ($cp->run('--exclude=postgres --include=postgres'), qr{^$label OK: .+1 of 10}, $t);
 
     $t=qq{$S works when include and exclude make a match};
-    like ($cp->run('--include=postgres --exclude=postgres'), qr{^$label OK: .+3 of 10}, $t);
+    like ($cp->run('--include=postgres --exclude=postgres'), qr{^$label OK: .+1 of 10}, $t);
 
     $t=qq{$S returned correct performance data with include};
-    like ($cp->run('--include=postgres'), qr{ \| time=\d\.\d\ds ardala=0;9;9;0;10 beedeebeedee=0;9;9;0;10 postgres=3;9;9;0;10}, $t);
+    like ($cp->run('--include=postgres'), qr{ \| time=\d\.\d\ds postgres=1}, $t);
 }
 
 my %dbh;
@@ -183,7 +182,5 @@ for my $num (1..8) {
 
 $t=qq{$S returns critical when too many clients to even connect};
 like ($cp->run('-w -10'), qr{^$label CRITICAL: .+too many connections}, $t);
-
-$cp->drop_schema_if_exists();
 
 exit;
