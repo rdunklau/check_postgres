@@ -6348,7 +6348,7 @@ sub check_same_schema {
     ## The filter argument is supported
 
     ## We override the usual $db->{totaltime} with our own counter
-    my $start = [gettimeofday()];
+    my $start = $opt{showtime} ? [gettimeofday()] : 0;
 
     ## Check for filtering rules, then store inside opt{filtered}
     my %filter;
@@ -6567,7 +6567,7 @@ sub check_same_schema {
     }
 
     ## Set the total time
-    $db->{totaltime} = sprintf '%.2f', tv_interval($start);
+   $db->{totaltime} = sprintf '%.2f', $opt{showtime} ? tv_interval($start) : 0;
 
     ## Before we outpu any results, rewrite the audit file if needed
     ## We do this if we are reading from a saved file,
