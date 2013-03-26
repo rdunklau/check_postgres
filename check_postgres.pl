@@ -32,7 +32,7 @@ $Data::Dumper::Useqq = 1;
 
 binmode STDOUT, ':encoding(UTF-8)';
 
-our $VERSION = '2.21.0';
+our $VERSION = '2.21.0-D2';
 
 use vars qw/ %opt $PGBINDIR $PSQL $res $COM $SQL $db /;
 
@@ -963,6 +963,7 @@ GetOptions(
     'dbuser|u|dbuser1|u1=s@',
     'dbpass|dbpass1=s@',
     'dbservice|dbservice1=s@',
+    'slave=s',
 
     'PGBINDIR=s',
     'PSQL=s',
@@ -1142,6 +1143,7 @@ our $action_info = {
  fsm_relations       => [1, 'Checks percentage of relations used in free space map.'],
  hitratio            => [0, 'Report if the hit ratio of a database is too low.'],
  hot_standby_delay   => [1, 'Check the replication delay in hot standby setup'],
+ replication_delay   => [1, 'Check the replication delay from pg_stat_replication'],
  index_size          => [0, 'Checks the size of indexes only.'],
  table_size          => [0, 'Checks the size of tables only.'],
  relation_size       => [0, 'Checks the size of tables and indexes.'],
@@ -1230,6 +1232,7 @@ Other options:
   --man                 display the full manual
   -t X, --timeout=X     how long in seconds before we timeout. Defaults to 30 seconds.
   --symlinks            create named symlinks to the main program for each action
+  --slave=ipaddress     specify the ip address of the slave to check in pg_stat_replication
 
 Actions:
 Which test is determined by the --action option, or by the name of the program
@@ -1747,6 +1750,7 @@ our %testaction = (
                   fsm_pages         => 'VERSION: 8.2 MAX: 8.3',
                   fsm_relations     => 'VERSION: 8.2 MAX: 8.3',
                   hot_standby_delay => 'VERSION: 9.0',
+                  replication_delay => 'VERSION: 9.1',
                   listener          => 'MAX: 8.4',
 );
 if ($opt{test}) {
@@ -1939,6 +1943,9 @@ check_archive_ready() if $action eq 'archive_ready';
 
 ## Check the replication delay in hot standby setup
 check_hot_standby_delay() if $action eq 'hot_standby_delay';
+
+## Check the replication delay from pg_stat_statement
+check_replication_delay() if $action eq 'replication_delay';
 
 ## Check the maximum transaction age of all connections
 check_txn_time() if $action eq 'txn_time';
@@ -4852,6 +4859,115 @@ sub check_hot_standby_delay {
     return;
 
 } ## end of check_hot_standby_delay
+
+
+sub check_replication_delay {
+
+    ## Check on the delay in PITR replication between master and slave
+    ## Supports: Nagios, MRTG
+    ## Critical and warning are the delay between master and slave xlog locations
+    ## Example: --critical=1024
+
+    my ($warning, $critical) = validate_range({type => 'integer', leastone => 1});
+
+    # check if master and slave comply with the check using pg_is_in_recovery()
+    my ($master, $slave);
+    if ($opt{slave}) {
+    $slave = $opt{slave};
+    }
+    $SQL = q{SELECT pg_is_in_recovery() AS recovery;};
+
+    # Check if master is online (e.g. really a master)
+    my $info = run_command($SQL, { dbnumber => 1, regex => qr(t|f) });
+    for $db (@{$info->{db}}) {
+        my $status = $db->{slurp}[0];
+        if ($status->{recovery} eq 'f') {
+            $master = 1;
+            last;
+        }
+    }
+    if (! defined $slave or ! defined $master) {
+        add_unknown msg('hs-no-role');
+        return;
+    }
+
+    ## Get xlog positions
+    my ($moffset, $s_rec_offset, $s_rep_offset);
+
+    ## On slave
+    $SQL = qq{SELECT sent_location AS receive, replay_location AS replay FROM pg_stat_replication WHERE client_addr = '$slave'};
+    $info = run_command($SQL, { dbnumber => $master, regex => qr/\// });
+    my $saved_db;
+    for $db (@{$info->{db}}) {
+        my $receive = $db->{slurp}[0]{receive};
+        my $replay = $db->{slurp}[0]{replay};
+
+        if (defined $receive) {
+            my ($a, $b) = split(/\//, $receive);
+            $s_rec_offset = (hex('ff000000') * hex($a)) + hex($b);
+        }
+
+        if (defined $replay) {
+            my ($a, $b) = split(/\//, $replay);
+            $s_rep_offset = (hex('ff000000') * hex($a)) + hex($b);
+        }
+
+        $saved_db = $db if ! defined $saved_db;
+    }
+
+    if (! defined $s_rec_offset and ! defined $s_rep_offset) {
+        add_unknown msg('hs-no-location', 'slave');
+        return;
+    }
+
+    ## On master
+    $SQL = q{SELECT pg_current_xlog_location() AS location};
+    $info = run_command($SQL, { dbnumber => $master });
+    for $db (@{$info->{db}}) {
+        my $location = $db->{slurp}[0]{location};
+        next if ! defined $location;
+
+        my ($x, $y) = split(/\//, $location);
+        $moffset = (hex('ff000000') * hex($x)) + hex($y);
+        $saved_db = $db if ! defined $saved_db;
+    }
+
+    if (! defined $moffset) {
+        add_unknown msg('hs-no-location', 'master');
+        return;
+    }
+
+    ## Compute deltas
+    $db = $saved_db;
+    my $rec_delta = $moffset - $s_rec_offset;
+    my $rep_delta = $moffset - $s_rep_offset;
+
+    # Make sure it's always positive or zero
+    $rec_delta = 0 if $rec_delta < 0;
+    $rep_delta = 0 if $rep_delta < 0;
+
+    $MRTG and do_mrtg({one => $rep_delta, two => $rec_delta});
+
+    $db->{perf} = sprintf ' %s=%s;%s;%s ',
+        perfname(msg('hs-replay-delay')), $rep_delta, $warning, $critical;
+    $db->{perf} .= sprintf ' %s=%s;%s;%s',
+        perfname(msg('hs-receive-delay')), $rec_delta, $warning, $critical;
+
+    ## Do the check on replay delay in case SR has disconnected because it way too far behind
+    my $msg = qq{$rep_delta};
+    if (length $critical and $rep_delta > $critical) {
+        add_critical $msg;
+    }
+    elsif (length $warning and $rep_delta > $warning) {
+        add_warning $msg;
+    }
+    else {
+        add_ok $msg;
+    }
+
+    return;
+
+} ## end of check_replication_delay
 
 
 sub check_last_analyze {
